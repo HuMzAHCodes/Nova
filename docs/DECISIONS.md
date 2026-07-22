@@ -34,4 +34,9 @@ Every entry here answers: "why this, over the realistic alternative?" ARCHITECTU
 **Alternative considered:** Code first, document after the fact.
 **Why:** The project's primary goal is interview-prep through genuine understanding, not just a working app. Documenting after the fact tends to produce a description of what the code does, not why it was designed that way — the "why" is what interviewers actually probe.
 
+### Flat `docs/concepts/` folder, not week-numbered subfolders
+**Chosen:** Keep all concept docs in one flat folder, with `CONCEPTS_MAP.md` providing both a by-category and a by-week index into the same files.
+**Alternative considered:** `docs/concepts/week1/`, `week2/`, etc., grouping files by when they were built.
+**Why:** Interview review happens by topic ("let me review Auth"), not by week — a week-based folder structure would mismatch the category-based index and force an extra translation step every time the repo is navigated. Weeks also don't map 1:1 to categories (e.g. Week 7 alone spans AI, Analytics, and Caching), so week-folders would force unrelated concepts together anyway. A flat folder with a dual-view index gives both navigation paths without duplicating structure.
+
 <!-- Add new decisions above this line as they come up. -->

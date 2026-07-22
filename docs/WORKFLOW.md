@@ -7,7 +7,10 @@ This is the standing methodology for how this project gets built. It doesn't cha
 
 1. **Understand first.** Before writing any code for a feature, the concept behind it must be genuinely understood — through discussion, or by reading the relevant file in `docs/concepts/` if it already exists.
 2. **Then code it.** Only once the "why" is clear does implementation happen.
-3. **Document it.** Write (or update) the corresponding `docs/concepts/<concept>.md` file — what it is, the problem it solves, what was actually built, and likely interview questions on it.
+3. **Document it — two files, two jobs.** Every concept gets a pair of files in `docs/concepts/`:
+   - `<concept>.md` — tight and scannable: what it is, why it was needed, what we built, interview Q&A. This is what gets skimmed the night before an interview.
+   - `<concept>-notes.md` — the deep dive: full explanation, multiple examples, edge cases, comparisons to alternatives. This is what gets studied from if the topic feels shaky, not just refreshed.
+   A concept isn't "documented" until both files exist — writing only the tight version is a half-finished step.
 4. **Commit it.** The commit message ties back to the concept, not just "added feature X" — so the git history itself becomes part of the learning record.
 
 ## Why this rule exists
