@@ -8,6 +8,7 @@ Index of every file in `docs/concepts/` (kept flat — no week-based subfolders,
 
 ### Backend
 - [multi-tenancy-and-architecture.md](./concepts/multi-tenancy-and-architecture.md) / [notes](./concepts/multi-tenancy-and-architecture-notes.md) — shared-collection multi-tenancy model, `organizationId` scoping, layered architecture choice
+- [env-config-and-folder-structure.md](./concepts/env-config-and-folder-structure.md) / [notes](./concepts/env-config-and-folder-structure-notes.md) — validated env config with zod, app.js/server.js split, routes/controllers/services layering
 
 ### Auth & Authorization
 _(pending)_
@@ -39,6 +40,7 @@ _(pending)_
 
 ### Week 1 — Foundations & Backend Core
 - [multi-tenancy-and-architecture.md](./concepts/multi-tenancy-and-architecture.md) / [notes](./concepts/multi-tenancy-and-architecture-notes.md)
+- [env-config-and-folder-structure.md](./concepts/env-config-and-folder-structure.md) / [notes](./concepts/env-config-and-folder-structure-notes.md)
 
 ### Week 2 — Auth & Authorization (incl. Client role)
 _(pending)_
