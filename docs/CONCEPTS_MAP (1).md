@@ -34,6 +34,9 @@ _(pending)_
 ### Testing
 _(pending)_
 
+### Further Implementation (Post-Week 8)
+_(pending — see FURTHER_IMPLEMENTATION.md for what's planned: DB indexing deep-dive, observability, job queue patterns, transactions, GraphQL, security hardening, API versioning, search, horizontal scaling)_
+
 ---
 
 ## By Week
