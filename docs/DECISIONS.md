@@ -39,4 +39,19 @@ Every entry here answers: "why this, over the realistic alternative?" ARCHITECTU
 **Alternative considered:** `docs/concepts/week1/`, `week2/`, etc., grouping files by when they were built.
 **Why:** Interview review happens by topic ("let me review Auth"), not by week — a week-based folder structure would mismatch the category-based index and force an extra translation step every time the repo is navigated. Weeks also don't map 1:1 to categories (e.g. Week 7 alone spans AI, Analytics, and Caching), so week-folders would force unrelated concepts together anyway. A flat folder with a dual-view index gives both navigation paths without duplicating structure.
 
+### TypeScript over JavaScript for the backend
+**Chosen:** Backend written in TypeScript (compiled via `tsc`, run in dev via `ts-node`), not plain JavaScript.
+**Alternative considered:** Plain JavaScript with JSDoc comments for lightweight typing, or no typing at all.
+**Why:** Given the multi-tenancy scoping guarantees we're relying on (e.g., every tenant-scoped query needing `organizationId`), static types catch a whole class of mistakes at compile time — a missing or mistyped field on a Mongoose document, a controller returning the wrong shape — before they ever reach runtime. It's also a stronger, more current interview signal: most real-world Node backends at companies with any scale are TypeScript today, and being fluent in it (types, interfaces, generics with Express/Mongoose) is itself an interview-relevant skill this project should demonstrate.
+
+### tsx over ts-node + nodemon for running TypeScript in dev
+**Chosen:** `tsx watch server.ts` as the single dev-run tool.
+**Alternative considered:** `nodemon --exec ts-node --esm server.ts` (the original setup).
+**Why:** `ts-node`'s `--esm` flag does not reliably register Node's ESM loader on recent Node versions, causing `ERR_UNKNOWN_FILE_EXTENSION` errors when running `.ts` files directly under `"type": "module"`. `tsx` handles TypeScript + ESM natively, with built-in file watching, removing the need for `nodemon` as a separate dependency entirely. Fewer moving parts, and it's the more common modern choice in real-world TypeScript/Node projects today.
+
+### Standard (non-SRV) MongoDB connection string over mongodb+srv://
+**Chosen:** Connect using the standard multi-host format (`mongodb://host1:port,host2:port,host3:port/...`) instead of the SRV format (`mongodb+srv://cluster-address/...`).
+**Alternative considered:** The default SRV connection string Atlas provides out of the box.
+**Why:** Node's DNS resolver (`dns.resolveSrv`) failed with `ECONNREFUSED` on the dev machine regardless of network (tested on both home wifi and mobile hotspot), while plain DNS lookups (`dns.lookup`) and direct TCP connections to the same hosts on port 27017 both succeeded — isolating the failure specifically to SRV record resolution, a known class of issue with Node's DNS resolver on some Windows configurations. Rather than depend on SRV lookups working in every environment this project might run in (including whoever might clone this repo), the standard format sidesteps the issue entirely by listing server addresses directly. Also required relaxing the `MONGODB_URI` zod validation from `z.string().url()` to a regex checking the `mongodb://`/`mongodb+srv://` prefix, since the strict URL parser doesn't accept the comma-separated multi-host syntax. The `replicaSet` parameter was deliberately omitted rather than guessed — an incorrect replica set name causes the driver to silently exclude all servers as "not matching," producing a misleading server-selection-timeout error even when every host is reachable; omitting it lets the driver auto-discover topology from the servers directly.
+
 <!-- Add new decisions above this line as they come up. -->
