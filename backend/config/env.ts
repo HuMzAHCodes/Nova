@@ -11,8 +11,13 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.string().regex(/^\d+$/, 'PORT must be numeric').default('5000'),
 
-  // MongoDB Atlas connection string — must be a valid URL, or the app won't even try to connect.
-  MONGODB_URI: z.string().url(),
+  // MongoDB connection string — accepts both the SRV format (mongodb+srv://...)
+  // and the standard multi-host format (mongodb://host1:port,host2:port,.../...).
+  // We deliberately don't use z.string().url() here: the standard multi-host
+  // format isn't a spec-valid URL (comma-separated hosts), so the strict URL
+  // parser would reject a perfectly valid MongoDB connection string. Instead,
+  // we just check it starts with the right protocol.
+  MONGODB_URI: z.string().regex(/^mongodb(\+srv)?:\/\//, 'MONGODB_URI must start with mongodb:// or mongodb+srv://'),
 
   // JWT secrets are required to be at least 32 characters — a short secret is
   // brute-forceable, so this length check is a basic security guard, not just a formality.
