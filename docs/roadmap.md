@@ -77,5 +77,8 @@ MongoDB aggregation pipeline for dashboard charts (task completion, team velocit
 - `PITCH.md` — the product pitch, for portfolio/instructor presentation
 - Architecture diagram + 90-second demo video
 
+## Post-Week 8 — Further Implementation (optional, stretch scope)
+The core 8-week roadmap above deliberately goes deep on a focused set of concepts rather than shallow on everything backend engineering could cover. A small number of concepts were touched shallowly (indexing, observability, job queue patterns) or not touched at all (transactions, GraphQL, security hardening beyond auth, API versioning, search, horizontal scaling) — this was a deliberate scoping decision, not an oversight (see `DECISIONS.md`). Full detail on what these are, why they were deferred, and how they'd be added is in `FURTHER_IMPLEMENTATION.md`. This is explicitly optional, stretch-scope work that begins only after the core 8 weeks are complete — it does not extend or count against the 8-week commitment.
+
 ## Next step
 Say the word and we start Week 1 — repo scaffolding + the first concept doc (architecture decisions).

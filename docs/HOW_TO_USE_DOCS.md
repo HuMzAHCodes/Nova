@@ -15,7 +15,10 @@ Read, in order: **ARCHITECTURE.md** (how it's built) → **FILE_TREE.md** (where
 Read **DECISIONS.md** — every real fork-in-the-road choice, with the alternative that was considered and why it lost.
 
 ## If you want the interview-prep material
-Read **CONCEPTS_MAP.md** first — it indexes every file in `docs/concepts/` by category (Backend, Auth, Frontend, Real-time, Billing, Client Portal, AI, Infra, Testing). Each concept file is self-contained: what it is, why it was needed, what we built, common interview questions.
+Read **CONCEPTS_MAP.md** first — it indexes every file in `docs/concepts/` by category (Backend, Auth, Frontend, Real-time, Billing, Client Portal, AI, Infra, Testing, Further Implementation). Each concept file is self-contained: what it is, why it was needed, what we built, common interview questions.
+
+## If you want to know what's planned after the core 8 weeks
+Read **FURTHER_IMPLEMENTATION.md** — covers concepts deliberately touched shallowly or not at all in the core roadmap (DB transactions, GraphQL, security hardening, indexing depth, observability, and more), why they were deferred, and how they'd be added.
 
 ## If you're setting this project up locally
 Read **ENV_AND_CONFIG.md** for every environment variable and where to get it — the whole project is designed to run at $0 on free-tier services.
