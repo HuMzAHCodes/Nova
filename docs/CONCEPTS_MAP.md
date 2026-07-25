@@ -10,6 +10,7 @@ Index of every concept in `docs/concepts/`. Each concept lives in its own subfol
 - **multi-tenancy-and-architecture/** — [concept](./concepts/multi-tenancy-and-architecture/multi-tenancy-and-architecture.md) / [notes](./concepts/multi-tenancy-and-architecture/multi-tenancy-and-architecture-notes.md) — shared-collection multi-tenancy model, `organizationId` scoping, layered architecture choice
 - **env-config-and-folder-structure/** — [concept](./concepts/env-config-and-folder-structure/env-config-and-folder-structure.md) / [notes](./concepts/env-config-and-folder-structure/env-config-and-folder-structure-notes.md) — validated env config with zod, app.js/server.js split, routes/controllers/services layering
 - **organization-user-schema-design/** — [concept](./concepts/organization-user-schema-design/organization-user-schema-design.md) / [notes](./concepts/organization-user-schema-design/organization-user-schema-design-notes.md) / [worked example](./concepts/organization-user-schema-design/organization-user-schema-worked-example.md) — Organization/User/ClientAccess schema design, why Client access is a separate collection, plus a concrete filled-in scenario
+- **mongodb-vs-mysql/** — [concept](./concepts/mongodb-vs-mysql/mongodb-vs-mysql.md) / [notes](./concepts/mongodb-vs-mysql/mongodb-vs-mysql-notes.md) — SQL vs NoSQL, embedding vs referencing, why MongoDB has no native JOIN, when transactions are actually needed
 
 ### Auth & Authorization
 _(pending)_
@@ -46,6 +47,7 @@ _(pending — see FURTHER_IMPLEMENTATION.md for what's planned: DB indexing deep
 - multi-tenancy-and-architecture/
 - env-config-and-folder-structure/
 - organization-user-schema-design/
+- mongodb-vs-mysql/
 
 ### Week 2 — Auth & Authorization (incl. Client role)
 _(pending)_
