@@ -59,4 +59,9 @@ Every entry here answers: "why this, over the realistic alternative?" ARCHITECTU
 **Alternative considered:** Extend the core roadmap to include all of these now.
 **Why:** The project's primary goal is genuine depth on a focused set of concepts, not shallow breadth across everything backend engineering could touch — extending the timeline to cram in every possible topic would work directly against that stated priority. Keeping the core roadmap honest about its actual scope (and being explicit about what's deliberately deferred, with reasoning, rather than silently absent) is itself a better interview answer than pretending the project is exhaustive. One substitution was made for cost reasons: MongoDB Atlas Search replaces Elasticsearch for the search-infrastructure item, since Elasticsearch hosting isn't reliably free long-term while Atlas Search runs on the existing free-tier cluster.
 
+### Per-concept subfolders inside docs/concepts/, not a flat file list
+**Chosen:** Each concept gets its own subfolder (named to match its slug) inside `docs/concepts/`, holding its `.md`, `-notes.md`, and any `-worked-example.md` files together.
+**Alternative considered:** Keep all concept files flat in `docs/concepts/` (the original approach).
+**Why:** This is distinct from the earlier flat-vs-week-folders decision — that rejected week-based folders because they'd mismatch the category-based way concepts get reviewed. Per-concept subfolders don't have that problem: they group files that are already meant to be read together (a concept's tight version, deep dive, and worked example), not files that belong to unrelated categories. As the number of concepts grows past 30, a flat list becomes hard to scan for which files pair together; subfolders make that grouping visually unambiguous and scale cleanly to a concept having a third or fourth companion file.
+
 <!-- Add new decisions above this line as they come up. -->
