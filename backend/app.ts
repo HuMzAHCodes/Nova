@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import { errorHandler } from './middleware/errorHandler.js';
 
 // This file builds the Express application object but deliberately
 // never calls app.listen() — that responsibility belongs to server.ts.
@@ -32,6 +33,13 @@ app.get('/api/health', (req: Request, res: Response) => {
 // Each router only defines paths and which controller handles them —
 // per BACKEND_PRACTICES.md, no business logic ever lives in this file
 // or in the route files themselves.
+
+// IMPORTANT: this must be registered LAST, after every route. Express
+// identifies it as error-handling middleware by its four-parameter
+// signature, and only routes errors to middleware registered AFTER the
+// point where next(err) was called — see the centralized-error-handling
+// concept notes for the full explanation.
+app.use(errorHandler);
 
 export default app;
 
