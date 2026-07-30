@@ -1,6 +1,8 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { errorHandler } from './middleware/errorHandler.js';
+import organizationRoutes from './routes/organizationRoutes.js';
+import projectRoutes from './routes/projectRoutes.js';
 
 // This file builds the Express application object but deliberately
 // never calls app.listen() — that responsibility belongs to server.ts.
@@ -26,13 +28,15 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ success: true, message: 'Nova backend is running' });
 });
 
-// As real features get built, their routers get mounted here, e.g.:
-// import projectRoutes from './routes/projectRoutes.js';
-// app.use('/api/projects', projectRoutes);
-//
-// Each router only defines paths and which controller handles them —
-// per BACKEND_PRACTICES.md, no business logic ever lives in this file
-// or in the route files themselves.
+// CONCEPT: REST resource mounting (see rest-crud-design concept).
+// organizationRoutes handles /api/organizations and /api/organizations/:orgId.
+// projectRoutes handles BOTH /api/organizations/:orgId/projects (nested,
+// one level) AND /api/projects/:projectId (flattened, per the
+// no-more-than-one-level-of-nesting rule) — which is why it's mounted at
+// the bare /api root rather than under /api/projects specifically; the
+// router's own internal paths already specify the full nesting needed.
+app.use('/api/organizations', organizationRoutes);
+app.use('/api', projectRoutes);
 
 // IMPORTANT: this must be registered LAST, after every route. Express
 // identifies it as error-handling middleware by its four-parameter
