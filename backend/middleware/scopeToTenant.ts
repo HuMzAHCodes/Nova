@@ -1,55 +1,53 @@
 import { Request, Response, NextFunction } from 'express';
 
-// NextFunction = a callback you call to pass control to the *next* middleware/route
-//                handler in the chain. If you don't call it, the request hangs forever.
-
 // Extends Express's Request type so every route that uses this middleware
 // (and every controller/service downstream of it) knows tenantId and
 // userRole exist on the request, with proper TypeScript typing.
 export interface TenantScopedRequest extends Request {
-  // "extends Request" means: TenantScopedRequest has everything Request has,
-  // PLUS the extra fields defined below.
   tenantId?: string;
- 
   userRole?: string;
   user?: {
     _id: string;
     organizationId: string;
     role: string;
   };
-  // this is an inline object type — normally you'd import a shared
-  // User type instead of redefining its shape here.
 }
 
-// Layer 1 — applies to every protected route. Confirms which organization
-// this request is allowed to act on behalf of, and attaches it as
-// req.tenantId so every downstream controller/service reads from here —
-// never from req.body or req.query, which would be attacker-controlled.
+// CONCEPT: tenant-scoping middleware, Layer 1 (see docs/concepts/
+// tenant-scoping-middleware). Applies to every protected route.
+//
+// FLOW: this runs before any controller. It does two things, in order:
+//   1. Confirms the request is authenticated at all (req.user exists).
+//   2. If the route's URL includes an :orgId param (e.g.
+//      /api/organizations/:orgId/projects), confirms it matches the
+//      authenticated user's ACTUAL organization from their JWT — not
+//      just that they're logged in as *someone*. Without this second
+//      check, an authenticated user from Org A could view Org B's data
+//      simply by editing the URL. See docs/concepts/rest-crud-design
+//      for why this check lives here (a synchronous comparison) rather
+//      than in its own separate middleware the way the async
+//      Client-access check does.
 //
 // NOTE: req.user is a placeholder until real JWT auth exists (Week 2).
 // Once auth middleware runs before this one, it will populate req.user
-// from the decoded, signed JWT payload. For now this middleware assumes
-// req.user is already set by something upstream.
+// from the decoded, signed JWT payload.
 export function scopeToTenant(req: TenantScopedRequest, res: Response, next: NextFunction): void {
-  // ": void" means this function doesn't return a value — it either
-  // calls next() or sends a response, never both.
-
   const organizationId = req.user?.organizationId;
-  // "?." is optional chaining — if req.user is undefined, this whole
-  // expression evaluates to undefined instead of throwing an error.
 
   if (!organizationId) {
     res.status(401).json({ success: false, error: 'Not authenticated' });
-    // "return" here just exits the function early — it does NOT return
-    // a value (matches the ": void" above). Without this, execution
-    // would fall through and call next() even after sending a response.
+    return;
+  }
+
+  // Only applies on routes that actually have :orgId in their path —
+  // routes without it (e.g. /api/projects/:id) skip this check, since
+  // there's nothing in the URL to cross-verify against yet.
+  if (req.params.orgId && req.params.orgId !== organizationId) {
+    res.status(403).json({ success: false, error: 'Not authorized for this organization' });
     return;
   }
 
   req.tenantId = organizationId;
   req.userRole = req.user?.role;
-
   next();
-  // hands off control to whatever route handler/middleware comes next
-  // in the chain for this request.
 }
