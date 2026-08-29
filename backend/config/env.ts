@@ -24,6 +24,13 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
 
+  // CONCEPT: jwt-auth-design — 15 min access / 7 day refresh, the
+  // industry-standard tradeoff between leak-window size and how often the
+  // frontend needs to silently refresh. Expressed as strings here because
+  // that's the format jsonwebtoken's `expiresIn` option expects (e.g. "15m", "7d").
+  JWT_ACCESS_EXPIRY: z.string().default('15m'),
+  JWT_REFRESH_EXPIRY: z.string().default('7d'),
+
   // Stripe secret keys always start with "sk_" — this catches the common mistake
   // of accidentally pasting a publishable key ("pk_...") here instead.
   STRIPE_SECRET_KEY: z.string().startsWith('sk_'),
@@ -50,42 +57,10 @@ export type Env = z.infer<typeof envSchema>;
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  // This is the entire point of validating env vars at startup: if something's
-  // wrong, the app refuses to boot at all, with a clear message naming exactly
-  // which variable is missing or invalid — instead of failing mysteriously later,
-  // deep inside whichever feature happens to touch that variable first.
   console.error('❌ Invalid environment variables:');
   console.error(parsed.error.flatten().fieldErrors);
   process.exit(1);
 }
 
-// From this point on, every other file in the app should import `env` from here —
-// never read `process.env` directly anywhere else in the codebase.
 const env: Env = parsed.data;
 export default env;
-
-/**
- * ─────────────────────────────────────────────────────────────
- * CONCEPT SUMMARY (for anyone reading this file)
- * ─────────────────────────────────────────────────────────────
- * What this file does:
- *   Validates every environment variable Nova depends on, once,
- *   the moment the app starts — instead of trusting process.env
- *   blindly throughout the codebase.
- *
- * Why it matters:
- *   A missing or misspelled env variable (e.g. STRIPE_SECRET_KEY)
- *   would otherwise fail silently and only surface much later,
- *   deep in runtime — e.g. when a user tries to check out, or a
- *   demo is already in progress. This file turns that into an
- *   immediate, clearly-labeled failure at boot time.
- *
- * The rule this file enforces for the rest of the app:
- *   Never write `process.env.SOMETHING` anywhere else.
- *   Always `import env from './config/env.js'` and use `env.SOMETHING`.
- *
- * See docs/concepts/env-config-and-folder-structure.md for the
- * full concept writeup, and the matching -notes.md for a deeper
- * walkthrough with more examples.
- * ─────────────────────────────────────────────────────────────
- */
