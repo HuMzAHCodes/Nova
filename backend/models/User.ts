@@ -17,6 +17,19 @@ export interface IUser extends Document {
   name: string;
   role: 'owner' | 'admin' | 'member' | 'client';
   projectRoles: IProjectRole[];
+
+  // CONCEPT: email-verification-password-reset. emailVerified gates
+  // login entirely (hard verification — see authService.login). The
+  // *TokenHash/*Expires field pairs store only a HASH of each token,
+  // never the plain value — see lib/tokens.ts and the concept notes on
+  // why. Both are undefined/absent once unused (no active
+  // verification/reset in progress) or after being consumed (single-use).
+  emailVerified: boolean;
+  emailVerificationTokenHash?: string;
+  emailVerificationExpires?: Date;
+  passwordResetTokenHash?: string;
+  passwordResetExpires?: Date;
+
   createdAt: Date;
   updatedAt: Date;
   // CONCEPT: jwt-auth-design — comparePassword is an instance method
@@ -85,6 +98,26 @@ const userSchema = new Schema<IUser>(
       type: [projectRoleSchema],
       default: [], // every user starts with no overrides — matches Sara's
                    // example in the worked-example doc
+    },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationTokenHash: {
+      type: String,
+      select: false, // same reasoning as passwordHash — never leak this in a normal query
+    },
+    emailVerificationExpires: {
+      type: Date,
+      select: false,
+    },
+    passwordResetTokenHash: {
+      type: String,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      select: false,
     },
   },
   {
