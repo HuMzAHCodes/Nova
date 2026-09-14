@@ -31,6 +31,20 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
 
+  // CONCEPT: email-verification-password-reset. Gmail SMTP credentials —
+  // GMAIL_APP_PASSWORD is a Gmail-specific "app password," NOT the real
+  // account password (Gmail blocks direct password-based SMTP login).
+  // See the concept notes for why an app password is the correct,
+  // least-privilege credential to use here.
+  GMAIL_USER: z.string().email(),
+  GMAIL_APP_PASSWORD: z.string().min(1),
+
+  // Used to build the verification/reset links embedded in emails, e.g.
+  // `${FRONTEND_URL}/verify-email?token=...`. Kept as its own env var
+  // rather than hardcoded, since it differs between local dev and
+  // whatever the frontend ends up deployed at (Week 6+).
+  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+
   // Stripe secret keys always start with "sk_" — this catches the common mistake
   // of accidentally pasting a publishable key ("pk_...") here instead.
   STRIPE_SECRET_KEY: z.string().startsWith('sk_'),
