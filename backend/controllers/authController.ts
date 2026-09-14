@@ -1,7 +1,13 @@
 import { Request, Response } from 'express';
 import { catchAsync } from '../lib/catchAsync.js';
 import { sendSuccess } from '../lib/response.js';
-import { registerSchema, loginSchema } from '../validators/authValidators.js';
+import {
+  registerSchema,
+  loginSchema,
+  verifyEmailSchema,
+  requestPasswordResetSchema,
+  resetPasswordSchema,
+} from '../validators/authValidators.js';
 import * as authService from '../services/authService.js';
 import env from '../config/env.js';
 
@@ -24,26 +30,54 @@ const REFRESH_COOKIE_OPTIONS = {
 
 // FLOW: POST /auth/register
 //   1. Validate the request body
-//   2. Delegate to authService (creates Organization + Owner User together)
-//   3. Set the refresh token as an httpOnly cookie (frontend JS never
-//      touches this value directly)
-//   4. Return the access token + user/org info in the JSON body (frontend
-//      keeps the access token in memory only — never localStorage)
+//   2. Delegate to authService (creates Organization + Owner User,
+//      sends a verification email — does NOT issue tokens; see
+//      CONCEPT: email-verification-password-reset, hard verification)
+//   3. Respond with a "check your email" message — no accessToken, no
+//      refresh cookie, since the user cannot log in yet
 export const register = catchAsync(async (req: Request, res: Response) => {
   const input = registerSchema.parse(req.body);
-  const { user, organization, accessToken, refreshToken } = await authService.register(input);
-
-  res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS);
+  const { user, organization } = await authService.register(input);
 
   sendSuccess(
     res,
     {
-      accessToken,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role },
+      message: 'Registration successful. Please check your email to verify your account before logging in.',
+      user: { id: user._id, name: user.name, email: user.email },
       organization: { id: organization._id, name: organization.name, slug: organization.slug },
     },
     201
   );
+});
+
+// FLOW: GET or POST /auth/verify-email — the endpoint the emailed link
+// points to (frontend reads the ?token= query param and submits it here,
+// or this could be a direct GET depending on frontend implementation —
+// left as POST with token in body for consistency with our other
+// validated-body endpoints).
+export const verifyEmail = catchAsync(async (req: Request, res: Response) => {
+  const { token } = verifyEmailSchema.parse(req.body);
+  await authService.verifyEmail(token);
+  sendSuccess(res, { message: 'Email verified successfully. You can now log in.' });
+});
+
+// FLOW: POST /auth/forgot-password
+export const requestPasswordReset = catchAsync(async (req: Request, res: Response) => {
+  const { email } = requestPasswordResetSchema.parse(req.body);
+  await authService.requestPasswordReset(email);
+
+  // CONCEPT: email-verification-password-reset, common mistake #1 — this
+  // exact same message is returned whether or not a matching account
+  // was found, so this endpoint can never be used to enumerate which
+  // emails have accounts.
+  sendSuccess(res, { message: 'If an account with that email exists, a password reset link has been sent.' });
+});
+
+// FLOW: POST /auth/reset-password
+export const resetPassword = catchAsync(async (req: Request, res: Response) => {
+  const { token, newPassword } = resetPasswordSchema.parse(req.body);
+  await authService.resetPassword(token, newPassword);
+  sendSuccess(res, { message: 'Password reset successfully. You can now log in with your new password.' });
 });
 
 // FLOW: POST /auth/login — has loginRateLimit applied on the route
