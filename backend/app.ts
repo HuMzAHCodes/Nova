@@ -6,6 +6,7 @@ import { authenticate } from './middleware/authenticate.js';
 import authRoutes from './routes/authRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
+import taskRoutes from './routes/taskRoutes.js';
 
 // This file builds the Express application object but deliberately
 // never calls app.listen() — that responsibility belongs to server.ts.
@@ -50,6 +51,7 @@ app.use('/api/auth', authRoutes);
 // these routers) then reads from the req.user this middleware sets.
 app.use('/api/organizations', authenticate, organizationRoutes);
 app.use('/api', authenticate, projectRoutes);
+app.use('/api', authenticate, taskRoutes);
 
 // IMPORTANT: this must be registered LAST, after every route. Express
 // identifies it as error-handling middleware by its four-parameter
