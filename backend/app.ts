@@ -8,6 +8,7 @@ import organizationRoutes from './routes/organizationRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
+import clientInviteRoutes from './routes/clientInviteRoutes.js';
 
 // This file builds the Express application object but deliberately
 // never calls app.listen() — that responsibility belongs to server.ts.
@@ -58,6 +59,11 @@ app.use('/api', authenticate, taskRoutes);
 // never requireRole/requireProjectRole, keeping Client access
 // structurally separate from internal RBAC.
 app.use('/api/client', authenticate, clientRoutes);
+// The invite flow is an INTERNAL action (an Owner/Admin granting
+// access), so it's mounted at the plain /api root, alongside
+// projectRoutes/taskRoutes — not under /api/client, which is reserved
+// for routes a Client themselves calls.
+app.use('/api', authenticate, clientInviteRoutes);
 
 // IMPORTANT: this must be registered LAST, after every route. Express
 // identifies it as error-handling middleware by its four-parameter
