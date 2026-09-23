@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
-// CONCEPT: task-model-design (see docs/concepts/task-model-design).
+// CONCEPT: task-model-design (see docs/concepts/task-model-design) +
+// client-portal-backend (see docs/concepts/client-portal-backend).
 export interface ITask extends Document {
   organizationId: Types.ObjectId;
   projectId: Types.ObjectId;
@@ -11,6 +12,15 @@ export interface ITask extends Document {
                                 // See concept notes for the query/indexing
                                 // implications of this choice.
   dueDate?: Date;
+
+  // CONCEPT: client-portal-backend — a "deliverable" is modeled as a
+  // Task with these extra fields, not a separate resource. isDeliverable
+  // defaults to false for ordinary internal tasks; approvalStatus and
+  // clientFeedback only carry meaning when isDeliverable is true.
+  isDeliverable: boolean;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  clientFeedback?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -60,6 +70,21 @@ const taskSchema = new Schema<ITask>(
     dueDate: {
       type: Date,
     },
+    isDeliverable: {
+      type: Boolean,
+      default: false,
+      index: true, // client-facing task lists filter on this field
+    },
+    approvalStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      // Only set when isDeliverable is created as true — see
+      // taskService.create for where the default 'pending' gets applied.
+    },
+    clientFeedback: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: true,
@@ -69,6 +94,8 @@ const taskSchema = new Schema<ITask>(
 // CONCEPT: task-model-design — no separate permission fields or role logic
 // live on this schema at all. Task fully inherits access control from its
 // parent Project via requireProjectRole, applied at the ROUTE level (see
-// routes/taskRoutes.ts) — not modeled here in the schema.
+// routes/taskRoutes.ts) — not modeled here in the schema. Client access to
+// deliverables is handled separately via scopeToClientProject, also at
+// the route level (see routes/clientRoutes.ts).
 
 export default mongoose.model<ITask>('Task', taskSchema);
