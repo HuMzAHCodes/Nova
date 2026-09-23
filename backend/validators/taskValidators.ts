@@ -16,6 +16,12 @@ export const createTaskSchema = z.object({
   dueDate: z.coerce.date().optional(), // coerce: accepts an ISO string from
                                         // the request body, converts to a
                                         // real Date
+  // CONCEPT: client-portal-backend. Marking a task as a deliverable at
+  // creation time — approvalStatus/clientFeedback are NOT settable here;
+  // they're only ever changed via the client-facing approve/reject
+  // endpoints (see clientController.ts), never directly through the
+  // regular task update route.
+  isDeliverable: z.boolean().default(false),
 });
 
 export const updateTaskSchema = z.object({
