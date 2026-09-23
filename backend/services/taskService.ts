@@ -12,6 +12,11 @@ export async function create(tenantId: string, projectId: string, input: CreateT
     organizationId: tenantId,
     projectId,
     ...input,
+    // CONCEPT: client-portal-backend. A deliverable starts life needing
+    // review — approvalStatus is set to 'pending' automatically whenever
+    // isDeliverable is true, never left undefined for a task the client
+    // portal is meant to show as awaiting action.
+    ...(input.isDeliverable ? { approvalStatus: 'pending' } : {}),
   });
   return task;
 }
@@ -81,4 +86,37 @@ export async function remove(tenantId: string, taskId: string) {
   if (!task) {
     throw new AppError(404, 'Task not found');
   }
+}
+
+// CONCEPT: client-portal-backend. These two functions are called ONLY
+// from the client-facing controller (clientController.ts) — never from
+// the regular internal taskController — since approving/rejecting is
+// exclusively a Client action, not something an internal role does
+// through this same code path.
+export async function approveDeliverable(tenantId: string, taskId: string) {
+  const task = await Task.findOneAndUpdate(
+    { _id: taskId, organizationId: tenantId, isDeliverable: true },
+    { $set: { approvalStatus: 'approved' } },
+    { new: true }
+  );
+
+  if (!task) {
+    throw new AppError(404, 'Deliverable not found');
+  }
+
+  return task;
+}
+
+export async function rejectDeliverable(tenantId: string, taskId: string, feedback?: string) {
+  const task = await Task.findOneAndUpdate(
+    { _id: taskId, organizationId: tenantId, isDeliverable: true },
+    { $set: { approvalStatus: 'rejected', clientFeedback: feedback } },
+    { new: true }
+  );
+
+  if (!task) {
+    throw new AppError(404, 'Deliverable not found');
+  }
+
+  return task;
 }
