@@ -56,3 +56,24 @@ export async function sendPasswordResetEmail(to: string, token: string): Promise
     `,
   });
 }
+
+// CONCEPT: client-portal-backend. Reuses the exact same reset-password
+// LINK FORMAT and underlying token mechanism as sendPasswordResetEmail —
+// only the wording and stated expiry differ, since this is conceptually
+// "set your password for the first time" rather than "you forgot your
+// password," even though the code path (a hashed, time-limited,
+// single-use token) is identical.
+export async function sendClientInviteEmail(to: string, token: string, projectName: string): Promise<void> {
+  const setPasswordLink = `${env.FRONTEND_URL}/reset-password?token=${token}`;
+
+  await transporter.sendMail({
+    from: `"Nova" <${env.GMAIL_USER}>`,
+    to,
+    subject: `You've been invited to view "${projectName}" on Nova`,
+    html: `
+      <p>You've been invited to Nova's client portal for the project "${projectName}".</p>
+      <p><a href="${setPasswordLink}">Set your password and get started</a></p>
+      <p>This link expires in 7 days.</p>
+    `,
+  });
+}
