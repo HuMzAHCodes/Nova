@@ -7,6 +7,7 @@ import authRoutes from './routes/authRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
+import clientRoutes from './routes/clientRoutes.js';
 
 // This file builds the Express application object but deliberately
 // never calls app.listen() — that responsibility belongs to server.ts.
@@ -52,6 +53,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/organizations', authenticate, organizationRoutes);
 app.use('/api', authenticate, projectRoutes);
 app.use('/api', authenticate, taskRoutes);
+// CONCEPT: client-portal-backend. Mounted under its own /api/client
+// namespace — every route inside clientRoutes uses scopeToClientProject,
+// never requireRole/requireProjectRole, keeping Client access
+// structurally separate from internal RBAC.
+app.use('/api/client', authenticate, clientRoutes);
 
 // IMPORTANT: this must be registered LAST, after every route. Express
 // identifies it as error-handling middleware by its four-parameter
