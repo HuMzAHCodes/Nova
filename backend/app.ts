@@ -9,6 +9,7 @@ import projectRoutes from './routes/projectRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
 import clientInviteRoutes from './routes/clientInviteRoutes.js';
+import teamInviteRoutes from './routes/teamInviteRoutes.js';
 
 // This file builds the Express application object but deliberately
 // never calls app.listen() — that responsibility belongs to server.ts.
@@ -64,6 +65,10 @@ app.use('/api/client', authenticate, clientRoutes);
 // projectRoutes/taskRoutes — not under /api/client, which is reserved
 // for routes a Client themselves calls.
 app.use('/api', authenticate, clientInviteRoutes);
+// CONCEPT: team-member-invite. Same reasoning as clientInviteRoutes
+// above — an internal action (Owner inviting Admins/Members), so it's
+// mounted at the plain /api root, not under /api/client.
+app.use('/api', authenticate, teamInviteRoutes);
 
 // IMPORTANT: this must be registered LAST, after every route. Express
 // identifies it as error-handling middleware by its four-parameter
