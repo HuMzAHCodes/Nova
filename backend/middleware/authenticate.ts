@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../lib/jwt.js';
 import { TenantScopedRequest } from './scopeToTenant.js';
 
@@ -37,7 +37,7 @@ export function authenticate(req: TenantScopedRequest, res: Response, next: Next
       role: payload.role,
     };
     next();
-  } catch (err) {
+  } catch {
     // jwt.verify() throws for BOTH an invalid signature (tampered/forged
     // token) and an expired token — either way, the client's response is
     // the same: reject with 401, prompting the frontend to attempt a
