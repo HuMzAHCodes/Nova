@@ -15,7 +15,7 @@ import { CreateOrganizationInput, UpdateOrganizationInput } from '../validators/
 // wrapped in catchAsync, itself called after createOrganizationSchema
 // has already validated the request body — so `input` here is already
 // known to be well-formed.
-export async function create(ownerId: string, input: { name: string; slug: string }) {
+export async function create(ownerId: string, input: CreateOrganizationInput) {
   const existing = await Organization.findOne({ slug: input.slug });
   if (existing) {
     throw new AppError(409, 'That organization slug is already taken');
