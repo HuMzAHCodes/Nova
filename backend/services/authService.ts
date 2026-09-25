@@ -75,7 +75,7 @@ export async function register(input: RegisterInput) {
   });
   await user.save();
 
-  organization.ownerId = user._id as any;
+  organization.ownerId = user._id as mongoose.Types.ObjectId;
   await organization.save();
 
   await sendVerificationEmail(user.email, verificationToken);
