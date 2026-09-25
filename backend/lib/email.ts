@@ -4,7 +4,7 @@ import env from '../config/env.js';
 // CONCEPT: email-verification-password-reset (see docs/concepts/
 // email-verification-password-reset). This is the ONLY place in the app
 // that directly uses Nodemailer/Gmail SMTP — every caller goes through
-// the two named send functions below, not the raw transporter.
+// the named send functions below, not the raw transporter.
 
 // A single, reused SMTP connection ("transporter") configured for
 // Gmail. GMAIL_APP_PASSWORD is a Gmail-specific app password, NOT the
@@ -72,6 +72,26 @@ export async function sendClientInviteEmail(to: string, token: string, projectNa
     subject: `You've been invited to view "${projectName}" on Nova`,
     html: `
       <p>You've been invited to Nova's client portal for the project "${projectName}".</p>
+      <p><a href="${setPasswordLink}">Set your password and get started</a></p>
+      <p>This link expires in 7 days.</p>
+    `,
+  });
+}
+
+// CONCEPT: team-member-invite. Same underlying token mechanism again —
+// see the concept notes for why one reused system backs every
+// "invite someone with no password yet" flow in the app, rather than a
+// bespoke one per flow. Distinct only in wording/subject, same as
+// sendClientInviteEmail is distinct from sendPasswordResetEmail.
+export async function sendTeamInviteEmail(to: string, token: string, organizationName: string): Promise<void> {
+  const setPasswordLink = `${env.FRONTEND_URL}/reset-password?token=${token}`;
+
+  await transporter.sendMail({
+    from: `"Nova" <${env.GMAIL_USER}>`,
+    to,
+    subject: `You've been invited to join ${organizationName} on Nova`,
+    html: `
+      <p>You've been invited to join <strong>${organizationName}</strong> on Nova.</p>
       <p><a href="${setPasswordLink}">Set your password and get started</a></p>
       <p>This link expires in 7 days.</p>
     `,
