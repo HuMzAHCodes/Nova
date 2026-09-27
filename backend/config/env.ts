@@ -50,6 +50,14 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().startsWith('sk_'),
   STRIPE_WEBHOOK_SECRET: z.string(),
 
+  // CONCEPT: stripe-billing. One Price ID per paid tier — Free has no
+  // Price at all, since it's never billed through Stripe. Price IDs
+  // always start with "price_", same reasoning as the "sk_" check above:
+  // catch a wrong-value paste at startup instead of a confusing failure
+  // deep inside a Checkout Session creation call later.
+  STRIPE_PRICE_ID_PRO: z.string().startsWith('price_'),
+  STRIPE_PRICE_ID_BUSINESS: z.string().startsWith('price_'),
+
   CLOUDINARY_CLOUD_NAME: z.string(),
   CLOUDINARY_API_KEY: z.string(),
   CLOUDINARY_API_SECRET: z.string(),
@@ -71,7 +79,7 @@ export type Env = z.infer<typeof envSchema>;
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Invalid environment variables:');
+  console.error('Invalid environment variables:');
   console.error(parsed.error.flatten().fieldErrors);
   process.exit(1);
 }
