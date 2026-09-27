@@ -1,5 +1,6 @@
 import Project from '../models/Project.js';
 import { AppError } from '../lib/AppError.js';
+import { checkLimit } from '../lib/checkLimit.js';
 import { CreateProjectInput, UpdateProjectInput, PROJECT_ALLOWED_SORT_FIELDS } from '../validators/projectValidators.js';
 import { PaginationQuery } from '../validators/paginationValidators.js';
 
@@ -11,6 +12,10 @@ import { PaginationQuery } from '../validators/paginationValidators.js';
 // supplying which tenant to scope to.
 
 export async function create(tenantId: string, input: CreateProjectInput) {
+  // CONCEPT: usage-limits-tier-gating. Checked before the DB write —
+  // see lib/checkLimit.ts.
+  await checkLimit(tenantId, 'projects');
+
   const project = await Project.create({
     organizationId: tenantId,
     name: input.name,
