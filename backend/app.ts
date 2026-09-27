@@ -10,6 +10,8 @@ import taskRoutes from './routes/taskRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
 import clientInviteRoutes from './routes/clientInviteRoutes.js';
 import teamInviteRoutes from './routes/teamInviteRoutes.js';
+import billingRoutes from './routes/billingRoutes.js';
+import stripeWebhookRoutes from './routes/stripeWebhookRoutes.js';
 
 // This file builds the Express application object but deliberately
 // never calls app.listen() — that responsibility belongs to server.ts.
@@ -24,6 +26,14 @@ const app = express();
 // it, the browser silently drops the cookie regardless of sameSite
 // settings. See docs/concepts/jwt-auth-design.
 app.use(cors({ origin: true, credentials: true }));
+
+// CONCEPT: stripe-billing. MUST be mounted BEFORE express.json() below —
+// Stripe webhook signature verification needs the exact raw request
+// bytes, which express.json() would otherwise consume and replace with
+// a parsed object. See stripe-billing concept notes on why this ordering
+// is a common real bug if missed. Also unauthenticated by design —
+// Stripe has no JWT to send; the signature check IS its authentication.
+app.use('/api/webhooks/stripe', stripeWebhookRoutes);
 
 // Parses incoming JSON request bodies into req.body automatically.
 // Without this, req.body would be undefined for any JSON POST/PUT request.
@@ -69,6 +79,11 @@ app.use('/api', authenticate, clientInviteRoutes);
 // above — an internal action (Owner inviting Admins/Members), so it's
 // mounted at the plain /api root, not under /api/client.
 app.use('/api', authenticate, teamInviteRoutes);
+// CONCEPT: stripe-billing. Checkout/portal session creation are
+// authenticated, Owner-only internal actions — unlike the webhook route
+// above, which is unauthenticated and mounted separately, before
+// express.json().
+app.use('/api', authenticate, billingRoutes);
 
 // IMPORTANT: this must be registered LAST, after every route. Express
 // identifies it as error-handling middleware by its four-parameter
