@@ -1,4 +1,4 @@
-export type SubscriptionTier = 'free' | 'pro' | 'agency';
+export type SubscriptionTier = 'free' | 'pro' | 'business';
 export type LimitedResource = 'projects' | 'clients' | 'teamMembers';
 
 interface TierLimits {
@@ -22,7 +22,7 @@ export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, TierLimits> = {
     clients: 10,
     teamMembers: 8,
   },
-  agency: {
+  business: {
     projects: Infinity,
     clients: Infinity,
     teamMembers: Infinity,
