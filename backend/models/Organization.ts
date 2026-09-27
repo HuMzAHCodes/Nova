@@ -1,14 +1,15 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
-// TypeScript interface describing the shape of an Organization document.
-// Extending mongoose.Document gives us Mongoose's built-in fields (_id, etc.)
-// alongside our own fields, so TypeScript knows the full shape everywhere
-// this type is used.
 export interface IOrganization extends Document {
   name: string;
   slug: string;
   ownerId: Types.ObjectId;
   subscriptionTier: 'free' | 'pro' | 'business';
+  // CONCEPT: stripe-billing. Both optional/undefined until the org's
+  // first Checkout Session actually completes — a free-tier org that
+  // never subscribed has neither of these set.
+  stripeCustomerId?: string;
+  subscriptionStatus?: 'active' | 'canceled' | 'past_due';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,13 +24,13 @@ const organizationSchema = new Schema<IOrganization>(
     slug: {
       type: String,
       required: true,
-      unique: true, // enforced at the database level via a unique index
+      unique: true,
       lowercase: true,
       trim: true,
     },
     ownerId: {
       type: Schema.Types.ObjectId,
-      ref: 'User', // tells Mongoose this references a document in the User collection
+      ref: 'User',
       required: true,
     },
     subscriptionTier: {
@@ -37,14 +38,17 @@ const organizationSchema = new Schema<IOrganization>(
       enum: ['free', 'pro', 'business'],
       default: 'free',
     },
+    stripeCustomerId: {
+      type: String,
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ['active', 'canceled', 'past_due'],
+    },
   },
   {
-    // Automatically adds and maintains createdAt / updatedAt fields —
-    // no need to set them manually anywhere.
     timestamps: true,
   }
 );
 
-// mongoose.model() registers this schema under the name 'Organization',
-// which is also what other schemas' `ref: 'Organization'` fields point to.
 export default mongoose.model<IOrganization>('Organization', organizationSchema);
