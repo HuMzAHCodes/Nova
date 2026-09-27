@@ -1,5 +1,6 @@
 import Task from '../models/Task.js';
 import { AppError } from '../lib/AppError.js';
+import { getIO } from '../lib/socket.js';
 import { CreateTaskInput, UpdateTaskInput, TASK_ALLOWED_SORT_FIELDS } from '../validators/taskValidators.js';
 import { PaginationQuery } from '../validators/paginationValidators.js';
 
@@ -93,6 +94,13 @@ export async function remove(tenantId: string, taskId: string) {
 // the regular internal taskController — since approving/rejecting is
 // exclusively a Client action, not something an internal role does
 // through this same code path.
+//
+// CONCEPT: socketio-realtime-deliverables. The emit happens HERE, in the
+// service layer, right after the DB write succeeds — not in the
+// controller. See the concept notes on why the service (which already
+// knows "this write succeeded") is the correct place to trigger the
+// side effect that follows from it, same reasoning as sendClientInviteEmail
+// being called from a service rather than a controller.
 export async function approveDeliverable(tenantId: string, taskId: string) {
   const task = await Task.findOneAndUpdate(
     { _id: taskId, organizationId: tenantId, isDeliverable: true },
@@ -103,6 +111,12 @@ export async function approveDeliverable(tenantId: string, taskId: string) {
   if (!task) {
     throw new AppError(404, 'Deliverable not found');
   }
+
+  getIO().to(`project:${task.projectId}`).emit('deliverable:statusChanged', {
+    taskId: task._id,
+    projectId: task.projectId,
+    approvalStatus: task.approvalStatus,
+  });
 
   return task;
 }
@@ -117,6 +131,12 @@ export async function rejectDeliverable(tenantId: string, taskId: string, feedba
   if (!task) {
     throw new AppError(404, 'Deliverable not found');
   }
+
+  getIO().to(`project:${task.projectId}`).emit('deliverable:statusChanged', {
+    taskId: task._id,
+    projectId: task.projectId,
+    approvalStatus: task.approvalStatus,
+  });
 
   return task;
 }
