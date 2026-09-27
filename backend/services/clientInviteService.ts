@@ -4,6 +4,7 @@ import ClientAccess from '../models/ClientAccess.js';
 import { AppError } from '../lib/AppError.js';
 import { generateToken, hashToken } from '../lib/tokens.js';
 import { sendClientInviteEmail } from '../lib/email.js';
+import { checkLimit } from '../lib/checkLimit.js';
 import { InviteClientInput } from '../validators/clientInviteValidators.js';
 
 // CONCEPT: client-portal-backend (client invite flow). Longer than
@@ -32,6 +33,12 @@ export async function inviteClient(tenantId: string, projectId: string, input: I
   }
 
   if (!user) {
+    // CONCEPT: usage-limits-tier-gating. Only checked here, when a NEW
+    // client is actually being created — granting an EXISTING client
+    // access to another project below doesn't add a new client to the
+    // count, so it must not be re-checked there.
+    await checkLimit(tenantId, 'clients');
+
     // A random, unguessable placeholder — never communicated to anyone,
     // never meant to be used to log in directly. Hashed automatically by
     // the User model's existing pre-save hook, same as any real password.
