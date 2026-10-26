@@ -45,14 +45,16 @@ const envSchema = z.object({
   // whatever the frontend ends up deployed at (Week 6+).
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
 
-  // Stripe secret keys always start with "sk_" — this catches the common mistake
-  // of accidentally pasting a publishable key ("pk_...") here instead.
-  STRIPE_SECRET_KEY: z.string().startsWith('sk_'),
+  // Stripe secret keys start with "sk_" (standard keys) or "rk" (restricted
+  // keys, which is what a Stripe CLI sandbox issues: "rkcs_test_..."). Both
+  // forms are accepted. The check still catches the common mistake of
+  // pasting a publishable key ("pk_...") here instead.
+  STRIPE_SECRET_KEY: z.string().regex(/^(sk|rk)/, 'STRIPE_SECRET_KEY must start with sk or rk'),
   STRIPE_WEBHOOK_SECRET: z.string(),
 
   // CONCEPT: stripe-billing. One Price ID per paid tier — Free has no
   // Price at all, since it's never billed through Stripe. Price IDs
-  // always start with "price_", same reasoning as the "sk_" check above:
+  // always start with "price_", same reasoning as the key check above:
   // catch a wrong-value paste at startup instead of a confusing failure
   // deep inside a Checkout Session creation call later.
   STRIPE_PRICE_ID_PRO: z.string().startsWith('price_'),
