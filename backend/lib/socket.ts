@@ -2,8 +2,14 @@ import { Server, Socket } from 'socket.io';
 import http from 'http';
 import { verifyAccessToken } from './jwt.js';
 import User from '../models/User.js';
+import Project from '../models/Project.js';
 
 let io: Server | null = null;
+
+// A MongoDB ObjectId is a 24-character hex string. Checked before any
+// database query so a malformed, client-supplied value can never reach
+// Mongoose and throw a cast error inside an event handler.
+const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
 
 // CONCEPT: socketio-realtime-deliverables. Called once from server.ts,
 // after the shared http.Server is created — see the concept notes on
@@ -42,10 +48,19 @@ export function initializeSocket(httpServer: http.Server): Server {
     // of project-level authorization requireProjectRole enforces on
     // REST routes, just invoked manually here since Socket.io custom
     // events don't have Express-style route middleware.
+    //
+    // The whole handler is wrapped in try/catch: an error thrown inside
+    // an async event handler is an unhandled promise rejection, which
+    // can take the whole server process down. A failed join simply
+    // means the client does not get the room.
     socket.on('joinProject', async (projectId: string) => {
-      const hasAccess = await userHasProjectAccess(socket.data.user, projectId);
-      if (hasAccess) {
-        socket.join(`project:${projectId}`);
+      try {
+        const hasAccess = await userHasProjectAccess(socket.data.user, projectId);
+        if (hasAccess) {
+          socket.join(`project:${projectId}`);
+        }
+      } catch (error) {
+        console.error('joinProject failed:', error);
       }
     });
   });
@@ -54,7 +69,7 @@ export function initializeSocket(httpServer: http.Server): Server {
 }
 
 // CONCEPT: socketio-realtime-deliverables. Lets service-layer code (e.g.
-// clientService.approveDeliverable) emit events without importing the
+// taskService.approveDeliverable) emit events without importing the
 // Socket.io setup logic directly — a thin accessor, not a new place
 // business logic lives.
 export function getIO(): Server {
@@ -64,16 +79,35 @@ export function getIO(): Server {
   return io;
 }
 
-// NOTE: this mirrors requireProjectRole's fast-path/slow-path shape
-// (org-level role check, then per-project override lookup) — but is
-// written fresh here since Express middleware can't be reused directly
-// inside a Socket.io event handler. Worth double-checking this against
-// your actual requireProjectRole.ts to keep the two in sync if that
+// CONCEPT: socketio-realtime-deliverables (tenant isolation). Two layers,
+// in this order:
+//   1. The project must exist INSIDE the caller's own organization. This
+//      applies to every role. Without it, an Owner or Admin of one
+//      organization could join the room of a project in another
+//      organization just by knowing its ID and receive that tenant's events.
+//   2. Within the organization, Owner and Admin may join any project;
+//      everyone else needs a per-project role on that specific project.
+//
+// NOTE: the second layer mirrors requireProjectRole's fast-path/slow-path
+// shape, but is written separately because Express middleware cannot be
+// reused inside a Socket.io event handler. Keep the two in sync if that
 // logic ever changes.
 async function userHasProjectAccess(
   user: { _id: string; organizationId: string; role: string },
   projectId: string
 ): Promise<boolean> {
+  if (typeof projectId !== 'string' || !OBJECT_ID_PATTERN.test(projectId)) {
+    return false;
+  }
+
+  const projectInOwnOrganization = await Project.exists({
+    _id: projectId,
+    organizationId: user.organizationId,
+  });
+  if (!projectInOwnOrganization) {
+    return false;
+  }
+
   if (user.role === 'owner' || user.role === 'admin') {
     return true; // org-level roles have access to every project in their org
   }
