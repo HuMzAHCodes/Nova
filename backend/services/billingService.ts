@@ -9,6 +9,8 @@ const TIER_PRICE_IDS: Record<'pro' | 'business', string> = {
   business: env.STRIPE_PRICE_ID_BUSINESS,
 };
 
+type OrganizationStatus = 'active' | 'canceled' | 'past_due';
+
 // FLOW: called by billingController.createCheckoutSessionHandler,
 // Owner-only. Creates (or reuses) a Stripe Customer for this
 // organization, then a Checkout Session for the requested tier's Price.
@@ -47,7 +49,7 @@ export async function createCheckoutSession(organizationId: string, tier: 'pro' 
 
 // FLOW: called by billingController.createPortalSessionHandler,
 // Owner-only. Lets a subscriber manage/cancel their own subscription via
-// Stripe's hosted portal — no billing-management UI needed on our side.
+// Stripe's hosted portal, so no billing-management UI is needed on our side.
 export async function createPortalSession(organizationId: string): Promise<string> {
   const organization = await Organization.findById(organizationId);
   if (!organization || !organization.stripeCustomerId) {
@@ -62,10 +64,39 @@ export async function createPortalSession(organizationId: string): Promise<strin
   return portalSession.url;
 }
 
-// CONCEPT: stripe-billing. Stripe is the source of truth — this function
-// is the ONLY place subscriptionTier/subscriptionStatus are ever
-// written, and it only runs in response to a verified webhook event,
-// never a direct client action. See the concept notes for why.
+// Stripe sends the customer as an ID string, an expanded object, or null
+// depending on the event. We only ever need the ID.
+function extractCustomerId(
+  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null
+): string | null {
+  if (!customer) return null;
+  return typeof customer === 'string' ? customer : customer.id;
+}
+
+// CONCEPT: lapsed-payment-access-restriction. Stripe has more subscription
+// statuses than our schema stores. Map each one onto our three values, or
+// return null to leave the stored status unchanged. Saving an unmapped
+// status would fail the schema enum and turn a webhook into a 500.
+function mapStripeStatus(status: Stripe.Subscription.Status): OrganizationStatus | null {
+  switch (status) {
+    case 'active':
+    case 'trialing':
+      return 'active';
+    case 'past_due':
+    case 'unpaid':
+      return 'past_due';
+    case 'canceled':
+    case 'incomplete_expired':
+      return 'canceled';
+    default:
+      return null; // incomplete, paused: no change
+  }
+}
+
+// CONCEPT: stripe-billing. Stripe is the source of truth. This function is
+// the ONLY place subscriptionTier/subscriptionStatus are ever written, and
+// it only runs in response to a verified webhook event, never a direct
+// client action. See the concept notes for why.
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case 'checkout.session.completed': {
@@ -83,30 +114,47 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
 
     case 'customer.subscription.updated': {
       const subscription = event.data.object as Stripe.Subscription;
-      const organization = await Organization.findOne({ stripeCustomerId: subscription.customer as string });
-      if (!organization) break;
+      const customerId = extractCustomerId(subscription.customer);
+      const status = mapStripeStatus(subscription.status);
+      if (!customerId || !status) break;
 
-      organization.subscriptionStatus = subscription.status as 'active' | 'canceled' | 'past_due';
-      await organization.save();
+      await Organization.findOneAndUpdate({ stripeCustomerId: customerId }, { subscriptionStatus: status });
       break;
     }
 
     case 'customer.subscription.deleted': {
       const subscription = event.data.object as Stripe.Subscription;
-      const organization = await Organization.findOne({ stripeCustomerId: subscription.customer as string });
-      if (!organization) break;
+      const customerId = extractCustomerId(subscription.customer);
+      if (!customerId) break;
 
-      organization.subscriptionTier = 'free';
-      organization.subscriptionStatus = 'canceled';
-      await organization.save();
+      await Organization.findOneAndUpdate(
+        { stripeCustomerId: customerId },
+        { subscriptionTier: 'free', subscriptionStatus: 'canceled' }
+      );
+      break;
+    }
+
+    // CONCEPT: lapsed-payment-access-restriction. A failed renewal marks the
+    // organization past_due (restricted immediately via getEffectiveTier);
+    // a successful payment restores it to active. The stored tier is never
+    // changed here, so recovery is automatic. Invoices carry no organizationId
+    // metadata, so we look the organization up by stripeCustomerId.
+    case 'invoice.payment_failed':
+    case 'invoice.paid': {
+      const invoice = event.data.object as Stripe.Invoice;
+      const customerId = extractCustomerId(invoice.customer);
+      if (!customerId) break;
+
+      const status: OrganizationStatus = event.type === 'invoice.paid' ? 'active' : 'past_due';
+      await Organization.findOneAndUpdate({ stripeCustomerId: customerId }, { subscriptionStatus: status });
       break;
     }
 
     default:
-      // Unhandled event types are ignored deliberately — Stripe sends
-      // many event types; only reacting to the ones we've designed for
-      // keeps this handler focused rather than silently mishandling
-      // events we haven't thought through.
+      // Unhandled event types are ignored deliberately. Stripe sends many
+      // event types; only reacting to the ones we've designed for keeps
+      // this handler focused rather than silently mishandling events we
+      // haven't thought through.
       break;
   }
 }
