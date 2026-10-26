@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import stripe from '../config/stripe.js';
 import env from '../config/env.js';
 import Organization from '../models/Organization.js';
+import ProcessedStripeEvent from '../models/ProcessedStripeEvent.js';
 import { AppError } from '../lib/AppError.js';
 
 const TIER_PRICE_IDS: Record<'pro' | 'business', string> = {
@@ -93,10 +94,50 @@ function mapStripeStatus(status: Stripe.Subscription.Status): OrganizationStatus
   }
 }
 
+// MongoDB reports a unique-index violation with error code 11000.
+function isDuplicateKeyError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: number }).code === 11000
+  );
+}
+
+// CONCEPT: webhook-idempotency. Stripe delivers events at least once, so the
+// same event can arrive twice (a lost response, a retry, a manual resend).
+// This wrapper makes handling safe to repeat:
+//   1. CLAIM the event by inserting its ID. The unique index makes this
+//      atomic, so two simultaneous copies cannot both win.
+//   2. A duplicate-key error means the event was already handled: do nothing
+//      and return normally, so the controller answers 200.
+//   3. If the real handler fails, RELEASE the claim and rethrow, so Stripe's
+//      retry is processed instead of being wrongly skipped.
+export async function processWebhookEvent(event: Stripe.Event): Promise<void> {
+  try {
+    await ProcessedStripeEvent.create({ eventId: event.id });
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    await handleWebhookEvent(event);
+  } catch (error) {
+    // Best effort release; if it also fails, the original error is what
+    // matters, so do not let the cleanup error replace it.
+    await ProcessedStripeEvent.deleteOne({ eventId: event.id }).catch(() => undefined);
+    throw error;
+  }
+}
+
 // CONCEPT: stripe-billing. Stripe is the source of truth. This function is
 // the ONLY place subscriptionTier/subscriptionStatus are ever written, and
 // it only runs in response to a verified webhook event, never a direct
-// client action. See the concept notes for why.
+// client action. See the concept notes for why. Call it through
+// processWebhookEvent so duplicate deliveries are ignored.
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case 'checkout.session.completed': {
