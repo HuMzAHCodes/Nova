@@ -7,7 +7,7 @@ import { TenantScopedRequest } from '../middleware/scopeToTenant.js';
 import stripe from '../config/stripe.js';
 import env from '../config/env.js';
 import { createCheckoutSessionSchema } from '../validators/billingValidators.js';
-import { createCheckoutSession, createPortalSession, handleWebhookEvent } from '../services/billingService.js';
+import { createCheckoutSession, createPortalSession, processWebhookEvent } from '../services/billingService.js';
 
 export const createCheckoutSessionHandler = catchAsync(async (req: TenantScopedRequest, res: Response) => {
   const { tier } = createCheckoutSessionSchema.parse(req.body);
@@ -21,9 +21,15 @@ export const createPortalSessionHandler = catchAsync(async (req: TenantScopedReq
 });
 
 // CONCEPT: stripe-billing. req.body here is a raw Buffer, not parsed
-// JSON — see routes/stripeWebhookRoutes.ts and app.ts for why this route
+// JSON; see routes/stripeWebhookRoutes.ts and app.ts for why this route
 // specifically bypasses express.json(). Signature verification needs
 // those exact raw bytes.
+//
+// CONCEPT: webhook-idempotency. The event is handed to processWebhookEvent,
+// which ignores duplicates. Signature verification always runs FIRST, so
+// only genuine Stripe events can ever claim an event ID. If processing
+// throws, catchAsync forwards the error and Stripe receives a non-2xx
+// status, which is exactly what makes Stripe retry.
 export const handleStripeWebhook = catchAsync(async (req: Request, res: Response) => {
   const signature = req.headers['stripe-signature'];
   if (!signature) {
@@ -37,7 +43,7 @@ export const handleStripeWebhook = catchAsync(async (req: Request, res: Response
     throw new AppError(400, 'Invalid Stripe webhook signature');
   }
 
-  await handleWebhookEvent(event);
+  await processWebhookEvent(event);
 
   res.status(200).json({ received: true });
 });
