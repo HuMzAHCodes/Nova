@@ -1,7 +1,8 @@
 import Project from '../models/Project.js';
 import Task from '../models/Task.js';
-import Organization from '../models/Organization.js';
+import Organization, { IOrganization } from '../models/Organization.js';
 import { AppError } from '../lib/AppError.js';
+import { getEffectiveTier } from '../lib/getEffectiveTier.js';
 
 // CONCEPT: client-portal-backend. Kept as its own service, separate from
 // projectService/taskService, even though it queries the same
@@ -34,13 +35,32 @@ export async function listDeliverablesForClient(tenantId: string, projectId: str
   return deliverables;
 }
 
-// Placeholder until Week 5's real Stripe integration — see the concept
-// doc for why building this route shape now, even minimally, is still
-// worthwhile.
-export async function getBillingStatusForClient(tenantId: string) {
+// CONCEPT: client-billing-status. The only billing information a client may
+// see: three derived, client-safe fields. Never the Organization document
+// itself, so Stripe IDs and other internals cannot leak.
+export interface ClientBillingStatus {
+  tier: IOrganization['subscriptionTier'];
+  subscriptionStatus: 'active' | 'canceled' | 'past_due' | null;
+  accessRestricted: boolean;
+}
+
+// CONCEPT: client-billing-status + lapsed-payment-access-restriction.
+// tenantId comes from the authenticated user (scopeToTenant), never from
+// request input, so a client can only ever read their own organization.
+// The tier is the EFFECTIVE tier, so a lapsed Pro organization shows as
+// free, matching what checkLimit actually enforces. A missing status (a
+// free organization that never subscribed) is NOT treated as restricted.
+export async function getBillingStatusForClient(tenantId: string): Promise<ClientBillingStatus> {
   const organization = await Organization.findById(tenantId);
   if (!organization) {
     throw new AppError(404, 'Organization not found');
   }
-  return { subscriptionTier: organization.subscriptionTier };
+
+  const subscriptionStatus = organization.subscriptionStatus ?? null;
+
+  return {
+    tier: getEffectiveTier(organization),
+    subscriptionStatus,
+    accessRestricted: subscriptionStatus === 'past_due' || subscriptionStatus === 'canceled',
+  };
 }
