@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { TenantScopedRequest } from './scopeToTenant.js';
 import User from '../models/User.js';
+import { catchAsync } from '../lib/catchAsync.js';
 
 // CONCEPT: RBAC middleware (see docs/concepts/rbac-middleware). Like
 // requireRole, this is a middleware factory — but it also needs to check
@@ -12,8 +13,14 @@ import User from '../models/User.js';
 // FLOW: must run AFTER scopeToTenant. Requires the route to have a
 // :projectId param — used to check whether any override applies to THIS
 // specific project.
+//
+// CONCEPT: malformed-id-handling. The returned middleware is async, and
+// Express 4 does NOT forward a rejected promise from async middleware to
+// the error handler. It is wrapped in catchAsync so a database error in
+// the slow path below reaches errorHandler instead of becoming an
+// unhandled rejection.
 export function requireProjectRole(...allowedRoles: string[]) {
-  return async (req: TenantScopedRequest, res: Response, next: NextFunction): Promise<void> => {
+  return catchAsync(async (req: TenantScopedRequest, res: Response, next: NextFunction) => {
     // FAST PATH: if the user's org-level role already satisfies the
     // requirement, skip the database lookup entirely. This matters
     // because most requests never involve a per-project override —
@@ -47,5 +54,5 @@ export function requireProjectRole(...allowedRoles: string[]) {
     }
 
     next();
-  };
+  });
 }
