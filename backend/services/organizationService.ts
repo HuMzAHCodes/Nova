@@ -43,10 +43,26 @@ export async function findById(tenantId: string) {
   return organization;
 }
 
+// CONCEPT: billing-field-protection. The update is built from NAMED fields,
+// never by spreading the input object into the database call. Even if a
+// field were added to updateOrganizationSchema by mistake, it would still
+// not be written here unless it is also named below — two separate places
+// have to agree before a field becomes editable.
 export async function update(tenantId: string, input: UpdateOrganizationInput) {
+  const changes: { name?: string } = {};
+  if (input.name !== undefined) {
+    changes.name = input.name;
+  }
+
+  // Nothing editable was sent (for example a body containing only a field
+  // that is not allowed): return the organization unchanged.
+  if (Object.keys(changes).length === 0) {
+    return findById(tenantId);
+  }
+
   const organization = await Organization.findByIdAndUpdate(
     tenantId,
-    { $set: input },
+    { $set: changes },
     { new: true, runValidators: true } // return the updated doc; re-run schema validation on update
   );
 
