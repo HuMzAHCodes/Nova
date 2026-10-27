@@ -59,6 +59,14 @@ export function errorHandler(
     return;
   }
 
+  if ((err as { code?: number }).code === 11000) {
+    // CONCEPT: input-normalization. A unique index rejected the write (for
+    // example two invites for the same email racing past the findOne check).
+    // That is a conflict the caller caused, not a server bug.
+    res.status(409).json({ success: false, error: 'A record with this value already exists' });
+    return;
+  }
+
   if (err instanceof AppError) {
     // A deliberately-thrown, expected error — safe to show its message
     // directly to the client, along with the status code it was given.
