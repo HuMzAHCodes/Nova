@@ -1,4 +1,7 @@
 import Project from '../models/Project.js';
+import Task from '../models/Task.js';
+import ClientAccess from '../models/ClientAccess.js';
+import User from '../models/User.js';
 import { AppError } from '../lib/AppError.js';
 import { checkLimit } from '../lib/checkLimit.js';
 import { CreateProjectInput, UpdateProjectInput, PROJECT_ALLOWED_SORT_FIELDS } from '../validators/projectValidators.js';
@@ -96,4 +99,36 @@ export async function remove(tenantId: string, projectId: string) {
   if (!project) {
     throw new AppError(404, 'Project not found');
   }
+
+  // CONCEPT: cascade-deletes. Everything that points at the deleted project
+  // goes with it, so no record is left with a parent that no longer exists:
+  // its tasks, the client grants for it, and the per-project role overrides
+  // stored on users. Every filter keeps the tenant condition. No
+  // transaction: if one step fails the project is already gone, the leftovers
+  // are unreachable (every read goes through the tenant-filtered project),
+  // and the delete can be repeated safely.
+  await Promise.all([
+    Task.deleteMany({ organizationId: tenantId, projectId }),
+    ClientAccess.deleteMany({ organizationId: tenantId, projectId }),
+    removeProjectRoleOverrides(tenantId, projectId),
+  ]);
+}
+
+// Removes the deleted project from every user's projectRoles array. Written
+// as read, filter, write (not a single $pull with a condition) so it behaves
+// the same on every MongoDB-compatible server, including the stand-in used
+// when the tests run. Only users who actually have an override are touched.
+async function removeProjectRoleOverrides(tenantId: string, projectId: string) {
+  const affected = await User.find({ organizationId: tenantId, 'projectRoles.projectId': projectId })
+    .select('projectRoles')
+    .lean();
+
+  await Promise.all(
+    affected.map((user) =>
+      User.updateOne(
+        { _id: user._id },
+        { $set: { projectRoles: user.projectRoles.filter((pr) => String(pr.projectId) !== String(projectId)) } }
+      )
+    )
+  );
 }
