@@ -1,4 +1,5 @@
 import Task from '../models/Task.js';
+import Project from '../models/Project.js';
 import { AppError } from '../lib/AppError.js';
 import { getIO } from '../lib/socket.js';
 import { CreateTaskInput, UpdateTaskInput, TASK_ALLOWED_SORT_FIELDS } from '../validators/taskValidators.js';
@@ -8,7 +9,18 @@ import { PaginationQuery } from '../validators/paginationValidators.js';
 // function here takes tenantId as an explicit, required parameter and
 // filters by it — same tenant-safety pattern as projectService.
 
+// CONCEPT: parent-resource-check. A task may only be created under a
+// project that exists INSIDE the caller's own organization. The role
+// middleware (requireProjectRole) lets owners and admins through without
+// loading the project, so this data check has to live here, next to the
+// write. A missing project and another tenant's project give the same
+// answer (404), so project IDs cannot be probed across tenants.
 export async function create(tenantId: string, projectId: string, input: CreateTaskInput) {
+  const projectInTenant = await Project.exists({ _id: projectId, organizationId: tenantId });
+  if (!projectInTenant) {
+    throw new AppError(404, 'Project not found');
+  }
+
   const task = await Task.create({
     organizationId: tenantId,
     projectId,
