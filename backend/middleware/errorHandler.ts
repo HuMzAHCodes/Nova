@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { ZodError } from 'zod';
 import { AppError } from '../lib/AppError.js';
 
@@ -18,6 +19,12 @@ import { AppError } from '../lib/AppError.js';
 // pagination validators) shares this exact same gap — fixed HERE, once,
 // centrally, rather than wrapping every individual .parse() call in its
 // own try/catch throughout the codebase.
+//
+// SAME PATTERN, SECOND CLASS (malformed-id-handling concept): a path
+// parameter that is not a valid ObjectId (e.g. /api/projects/abc) makes
+// Mongoose throw a CastError when the query is built. That is a caller
+// mistake, not a server failure, so it is turned into a 400 here, once,
+// for every route — present and future.
 export function errorHandler(
   err: Error,
   req: Request,
@@ -38,6 +45,17 @@ export function errorHandler(
         message: issue.message,
       })),
     });
+    return;
+  }
+
+  if (err instanceof mongoose.Error.CastError) {
+    // CONCEPT: malformed-id-handling. Mongoose could not convert a
+    // client-supplied value to the type the schema expects (most often a
+    // path ID that is not 24 hex characters). The message never echoes
+    // the offending value back to the caller.
+    const message =
+      err.kind === 'ObjectId' ? 'Invalid ID format' : `Invalid value for ${err.path}`;
+    res.status(400).json({ success: false, error: message });
     return;
   }
 
