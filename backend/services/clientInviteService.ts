@@ -24,6 +24,16 @@ export async function inviteClient(tenantId: string, projectId: string, input: I
 
   let user = await User.findOne({ email: input.email });
 
+  // CONCEPT: tenant-bound-identity. A user belongs to exactly one
+  // organization. The lookup above is deliberately global (emails are
+  // unique across the whole system), so a match may belong to ANOTHER
+  // tenant. Reusing it would attach that tenant's client to this project and
+  // overwrite their password-reset token below. Same rule and same answer
+  // the team invite already uses.
+  if (user && String(user.organizationId) !== String(tenantId)) {
+    throw new AppError(409, 'This email is already associated with an account in another organization');
+  }
+
   if (user && user.role !== 'client') {
     // CONCEPT: client-portal-backend — deliberately rejected, not
     // silently converted. See the concept doc's Q&A for why conflating
