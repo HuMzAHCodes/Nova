@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { TenantScopedRequest } from './scopeToTenant.js';
 import ClientAccess from '../models/ClientAccess.js';
+import { catchAsync } from '../lib/catchAsync.js';
 
 // Extends the already-extended request further, adding clientPermissions —
 // only ever set when the requester is actually a Client.
@@ -8,7 +9,8 @@ export interface ClientScopedRequest extends TenantScopedRequest {
   // "extends TenantScopedRequest" chains the extension: this interface has
   // everything Request had, PLUS tenantId/userRole/user, PLUS the field below.
   clientPermissions?: string[];
-  // an array of permission strings, e.g. ['view_invoices', 'upload_files']
+  // an array of permission strings from ClientAccess.permissions —
+  // 'view' or 'approve'
 }
 
 // Layer 2 — only applied on routes reachable by the client portal.
@@ -18,49 +20,53 @@ export interface ClientScopedRequest extends TenantScopedRequest {
 //
 // Must run AFTER scopeToTenant, since it relies on req.tenantId and
 // req.userRole already being set.
-export async function scopeToClientProject(
-  
-  req: ClientScopedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
- 
-  if (req.userRole !== 'client') {
+//
+// CONCEPT: malformed-id-handling. This middleware is async, and Express 4
+// does NOT forward a rejected promise from async middleware to the error
+// handler. Without the catchAsync wrapper, a database or cast error thrown
+// by the query below (for example a projectId that is not a valid ObjectId)
+// would be an unhandled rejection: the request would hang and Node could
+// end the process. catchAsync passes any rejection to next(), so it
+// reaches errorHandler like every other error.
+export const scopeToClientProject = catchAsync(
+  async (req: ClientScopedRequest, res: Response, next: NextFunction) => {
+    if (req.userRole !== 'client') {
+      next();
+      // early exit for non-client roles — just pass through untouched.
+      return;
+    }
+
+    const projectId = req.params.projectId;
+    // req.params comes from the URL itself, e.g. /projects/:projectId/files
+    // → so req.params.projectId is whatever value sits in that URL segment.
+
+    if (!projectId) {
+      res.status(400).json({ success: false, error: 'Missing projectId' });
+      return;
+    }
+
+    // This is the one place a real database query happens in this middleware —
+    // unlike scopeToTenant, which only reads data already present on the
+    // request. See the concept notes for why this async/sync distinction
+    // is meaningful, not incidental.
+    const access = await ClientAccess.findOne({
+      // "await" pauses this function (without blocking the whole server)
+      // until the database query resolves — that's why the function had
+      // to be declared "async" in the first place.
+      userId: req.user?._id,
+      organizationId: req.tenantId,
+      projectId,
+      // shorthand for "projectId: projectId" — ES6 object property shorthand.
+    });
+
+    if (!access) {
+      res.status(403).json({ success: false, error: 'No access to this project' });
+      // 403 = "Forbidden" — the requester is authenticated, just not allowed
+      // access to this specific project (different from 401 = "not authenticated").
+      return;
+    }
+
+    req.clientPermissions = access.permissions;
     next();
-    // early exit for non-client roles — just pass through untouched.
-    return;
   }
-
-  const projectId = req.params.projectId;
-  // req.params comes from the URL itself, e.g. /projects/:projectId/files
-  // → so req.params.projectId is whatever value sits in that URL segment.
-
-  if (!projectId) {
-    res.status(400).json({ success: false, error: 'Missing projectId' });
-    return;
-  }
-
-  // This is the one place a real database query happens in this middleware —
-  // unlike scopeToTenant, which only reads data already present on the
-  // request. See the concept notes for why this async/sync distinction
-  // is meaningful, not incidental.
-  const access = await ClientAccess.findOne({
-    // "await" pauses this function (without blocking the whole server)
-    // until the database query resolves — that's why the function had
-    // to be declared "async" in the first place.
-    userId: req.user?._id,
-    organizationId: req.tenantId,
-    projectId,
-    // shorthand for "projectId: projectId" — ES6 object property shorthand.
-  });
-
-  if (!access) {
-    res.status(403).json({ success: false, error: 'No access to this project' });
-    // 403 = "Forbidden" — the requester is authenticated, just not allowed
-    // access to this specific project (different from 401 = "not authenticated").
-    return;
-  }
-
-  req.clientPermissions = access.permissions;
-  next();
-}
+);
