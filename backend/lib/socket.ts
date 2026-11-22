@@ -3,6 +3,7 @@ import http from 'http';
 import { verifyAccessToken } from './jwt.js';
 import User from '../models/User.js';
 import Project from '../models/Project.js';
+import ClientAccess from '../models/ClientAccess.js';
 
 let io: Server | null = null;
 
@@ -85,8 +86,11 @@ export function getIO(): Server {
 //      applies to every role. Without it, an Owner or Admin of one
 //      organization could join the room of a project in another
 //      organization just by knowing its ID and receive that tenant's events.
-//   2. Within the organization, Owner and Admin may join any project;
-//      everyone else needs a per-project role on that specific project.
+//   2. Within the organization, Owner and Admin may join any project.
+//   3. A Client may join only a project they hold a ClientAccess grant for
+//      (CONCEPT: socketio-client-events). A grant of any permission is
+//      enough, because receiving an update is the same as being able to view.
+//   4. Everyone else needs a per-project role on that specific project.
 //
 // NOTE: the second layer mirrors requireProjectRole's fast-path/slow-path
 // shape, but is written separately because Express middleware cannot be
@@ -110,6 +114,15 @@ async function userHasProjectAccess(
 
   if (user.role === 'owner' || user.role === 'admin') {
     return true; // org-level roles have access to every project in their org
+  }
+
+  if (user.role === 'client') {
+    const grant = await ClientAccess.exists({
+      userId: user._id,
+      organizationId: user.organizationId,
+      projectId,
+    });
+    return grant !== null;
   }
 
   const fullUser = await User.findById(user._id);
