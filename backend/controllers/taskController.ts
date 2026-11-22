@@ -15,7 +15,7 @@ import * as taskService from '../services/taskService.js';
 // FLOW: POST /projects/:projectId/tasks
 export const createTask = catchAsync(async (req: TenantScopedRequest, res: Response) => {
   const input = createTaskSchema.parse(req.body);
-  const task = await taskService.create(req.tenantId!, req.params.projectId, input);
+  const task = await taskService.create(req.tenantId!, req.params.projectId, input, req.user!._id);
   sendSuccess(res, { task }, 201);
 });
 
@@ -37,7 +37,7 @@ export const getTask = catchAsync(async (req: TenantScopedRequest, res: Response
 
 export const updateTask = catchAsync(async (req: TenantScopedRequest, res: Response) => {
   const input = updateTaskSchema.parse(req.body);
-  const task = await taskService.update(req.tenantId!, req.params.taskId, input);
+  const task = await taskService.update(req.tenantId!, req.params.taskId, input, req.user!._id);
   sendSuccess(res, { task });
 });
 
