@@ -1,6 +1,6 @@
 import Organization from '../models/Organization.js';
 import { AppError } from '../lib/AppError.js';
-import { CreateOrganizationInput, UpdateOrganizationInput } from '../validators/organizationValidators.js';
+import { UpdateOrganizationInput } from '../validators/organizationValidators.js';
 
 // CONCEPT: layered architecture (see BACKEND_PRACTICES.md and
 // env-config-and-folder-structure concept). This service is the ONLY
@@ -10,25 +10,6 @@ import { CreateOrganizationInput, UpdateOrganizationInput } from '../validators/
 // or a future soft-delete filter ever needs to change, it changes in
 // exactly one place, not in every controller that happens to touch
 // Organization.
-
-// FLOW: called by organizationController.createOrganization, itself
-// wrapped in catchAsync, itself called after createOrganizationSchema
-// has already validated the request body — so `input` here is already
-// known to be well-formed.
-export async function create(ownerId: string, input: CreateOrganizationInput) {
-  const existing = await Organization.findOne({ slug: input.slug });
-  if (existing) {
-    throw new AppError(409, 'That organization slug is already taken');
-  }
-
-  const organization = await Organization.create({
-    name: input.name,
-    slug: input.slug,
-    ownerId,
-  });
-
-  return organization;
-}
 
 // FLOW: called by organizationController.getOrganization, AFTER
 // scopeToTenant has already confirmed tenantId matches the requested
