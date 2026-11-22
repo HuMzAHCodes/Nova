@@ -44,6 +44,13 @@ export function initializeSocket(httpServer: http.Server): Server {
   });
 
   io.on('connection', (socket: Socket) => {
+    // CONCEPT: notifications. Every connection joins ONE private room named
+    // after the user, using the id from the VERIFIED token. There is no
+    // client event for joining it, so nothing the client sends can put it
+    // in someone else's room (unlike joinProject, which takes a
+    // client-supplied id and therefore needs an access check).
+    socket.join(`user:${socket.data.user._id}`);
+
     // CONCEPT: socketio-realtime-deliverables. A client-declared room
     // name is never trusted at face value — this mirrors the same kind
     // of project-level authorization requireProjectRole enforces on
