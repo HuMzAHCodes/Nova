@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { scopeToTenant } from '../middleware/scopeToTenant.js';
 import { requireRole } from '../middleware/requireRole.js';
-import { createOrganization, getOrganization, updateOrganization } from '../controllers/organizationController.js';
+import { getOrganization, updateOrganization } from '../controllers/organizationController.js';
 
 // CONCEPT: route files contain ONLY path → middleware → controller wiring
 // (see BACKEND_PRACTICES.md). No logic of any kind lives here.
@@ -14,13 +14,6 @@ import { createOrganization, getOrganization, updateOrganization } from '../cont
 
 const router = Router();
 
-// POST /api/organizations — this route is effectively superseded by
-// authService.register (Week 2), which creates an Organization + Owner
-// User together in one operation. Left here as a known, flagged overlap
-// (see services/authService.ts's comment) rather than silently removed —
-// revisit once it's clear whether this route should be repurposed (e.g.
-// "create an ADDITIONAL org under an existing user") or removed entirely.
-router.post('/', createOrganization);
 
 // VIEWING org details: any authenticated member of the org (owner,
 // admin, or member — Client still excluded) can see basic org info like
@@ -28,7 +21,8 @@ router.post('/', createOrganization);
 // applies here — no role restriction beyond "you belong to this org."
 router.get('/:orgId', scopeToTenant, requireRole('owner', 'admin', 'member'), getOrganization);
 
-// EDITING org settings (name, subscription tier) is Owner/Admin only —
+// EDITING org settings (the name only; billing fields are never editable
+// here, see billing-field-protection) is Owner/Admin only —
 // a regular Member can see the settings but not change them.
 router.patch('/:orgId', scopeToTenant, requireRole('owner', 'admin'), updateOrganization);
 
