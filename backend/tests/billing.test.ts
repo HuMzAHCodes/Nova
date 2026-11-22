@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { api, bearer, makeTenant } from './helpers.js';
 import Organization from '../models/Organization.js';
 import ProcessedStripeEvent from '../models/ProcessedStripeEvent.js';
+import mongoose from 'mongoose';
 
 const stripe = new Stripe('sk_test_fake');
 
@@ -76,5 +77,61 @@ describe('billing webhook', () => {
     const fresh = await Organization.findById(orgId);
     expect(fresh?.subscriptionTier).toBe('free');
     expect(fresh?.subscriptionStatus).toBe('canceled');
+  });
+});
+
+// CONCEPT: webhook-idempotency (KL-10). A claim records that an event is
+// being handled; it must not hide an event whose handling never finished.
+describe('KL-10: webhook claims survive a crash', () => {
+  const STALE_MINUTES = 10; // well past the take-over window
+
+  it('a finished event is marked done', async () => {
+    const { orgId } = await makeTenant('free');
+    await sendEvent(checkoutEvent('evt_done', orgId, 'pro'));
+    const claim = await ProcessedStripeEvent.findOne({ eventId: 'evt_done' });
+    expect(claim?.status).toBe('done');
+  });
+
+  it('an old unfinished claim (crashed handler) is taken over and the event is applied', async () => {
+    const { orgId } = await makeTenant('free');
+    await ProcessedStripeEvent.collection.insertOne({
+      eventId: 'evt_crashed',
+      status: 'processing',
+      claimedAt: new Date(Date.now() - STALE_MINUTES * 60 * 1000),
+      createdAt: new Date(),
+    });
+    const res = await sendEvent(checkoutEvent('evt_crashed', orgId, 'pro'));
+    expect(res.status).toBe(200);
+    expect((await Organization.findById(orgId))?.subscriptionTier).toBe('pro');
+    expect((await ProcessedStripeEvent.findOne({ eventId: 'evt_crashed' }))?.status).toBe('done');
+  });
+
+  it('a fresh unfinished claim (another delivery in flight) is not applied twice: answers 409 so Stripe retries', async () => {
+    const { orgId } = await makeTenant('free');
+    await ProcessedStripeEvent.collection.insertOne({
+      eventId: 'evt_inflight',
+      status: 'processing',
+      claimedAt: new Date(),
+      createdAt: new Date(),
+    });
+    const res = await sendEvent(checkoutEvent('evt_inflight', orgId, 'pro'));
+    expect(res.status).toBe(409);
+    expect((await Organization.findById(orgId))?.subscriptionTier).toBe('free');
+  });
+
+  it('a claim from before the status field existed counts as done', async () => {
+    const { orgId } = await makeTenant('free');
+    await ProcessedStripeEvent.collection.insertOne({ eventId: 'evt_legacy', createdAt: new Date() });
+    const res = await sendEvent(checkoutEvent('evt_legacy', orgId, 'pro'));
+    expect(res.status).toBe(200);
+    expect((await Organization.findById(orgId))?.subscriptionTier).toBe('free');
+  });
+
+  it('a handler that fails releases its claim so the retry is processed', async () => {
+    // a checkout event for an organization ID that is not a valid ObjectId makes the handler throw
+    const res = await sendEvent(checkoutEvent('evt_fails', 'not-an-object-id', 'pro'));
+    expect(res.status).toBe(400);
+    expect(await ProcessedStripeEvent.countDocuments({ eventId: 'evt_fails' })).toBe(0);
+    expect(mongoose.connection.readyState).toBe(1);
   });
 });
