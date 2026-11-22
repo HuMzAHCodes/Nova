@@ -14,7 +14,7 @@ vi.mock('../lib/email.js', () => ({
 // The login limiter counts per IP; every test request comes from the same
 // IP, so it is replaced by a pass-through.
 vi.mock('../middleware/loginRateLimit.js', () => ({
-  loginRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
+  loginRateLimit: [(_req: unknown, _res: unknown, next: () => void) => next()],
 }));
 
 let memoryServer: { stop: () => Promise<boolean>; getUri: () => string } | null = null;
