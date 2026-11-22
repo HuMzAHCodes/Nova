@@ -6,15 +6,6 @@ import { z } from 'zod';
 // which parses req.body against them BEFORE calling the service layer —
 // so the service layer can always trust the shape of what it receives.
 
-export const createOrganizationSchema = z.object({
-  name: z.string().trim().min(1).max(200),
-  slug: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9-]+$/, 'slug may only contain lowercase letters, numbers, and hyphens'),
-});
-
 // CONCEPT: billing-field-protection. This schema is an ALLOW-LIST: only the
 // fields named here can ever reach the service, because zod drops every
 // other key. Billing fields (subscriptionTier, subscriptionStatus,
@@ -26,5 +17,4 @@ export const updateOrganizationSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
 });
 
-export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
