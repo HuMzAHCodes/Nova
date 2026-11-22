@@ -121,6 +121,45 @@ describe('socket room isolation', () => {
     expect(await receivesEvent(outsider.owner, String(project._id), client, String(task._id))).toBe(false);
   });
 
+  // CONCEPT: socketio-client-events. A client joins only the rooms of
+  // projects they hold a ClientAccess grant for.
+  it('a client with a grant on the project receives the event', async () => {
+    const { client, project, task } = await clientWithAccess(['view', 'approve']);
+    expect(await receivesEvent(client, String(project._id), client, String(task._id))).toBe(true);
+  });
+
+  it('a view-only client with a grant also receives the event', async () => {
+    const { client, project, task } = await clientWithAccess(['view']);
+    // the client only watches; an approval made by another client of the same project triggers it
+    const approver = await makeUser(client.organizationId, 'client');
+    await ClientAccess.create({
+      userId: approver._id,
+      organizationId: client.organizationId,
+      projectId: project._id,
+      permissions: ['view', 'approve'],
+    });
+    expect(await receivesEvent(client, String(project._id), approver, String(task._id))).toBe(true);
+  });
+
+  it('a client without a grant on that project, in the same organization, receives nothing', async () => {
+    const { client, org, project, task } = await clientWithAccess(['view', 'approve']);
+    const otherProject = await makeProject(org._id, 'Other');
+    const bystander = await makeUser(org._id, 'client');
+    await ClientAccess.create({
+      userId: bystander._id,
+      organizationId: org._id,
+      projectId: otherProject._id,
+      permissions: ['view'],
+    });
+    expect(await receivesEvent(bystander, String(project._id), client, String(task._id))).toBe(false);
+  });
+
+  it('a client of another organization receives nothing', async () => {
+    const mine = await clientWithAccess(['view', 'approve']);
+    const theirs = await clientWithAccess(['view']);
+    expect(await receivesEvent(theirs.client, String(mine.project._id), mine.client, String(mine.task._id))).toBe(false);
+  });
+
   it('a connection without a token is refused', async () => {
     await expect(
       new Promise((resolve, reject) => {
