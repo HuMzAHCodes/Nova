@@ -5,6 +5,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/authenticate.js';
 import authRoutes from './routes/authRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
@@ -63,6 +64,8 @@ app.use('/api/auth', authRoutes);
 // the verified JWT. scopeToTenant (applied per-route inside each of
 // these routers) then reads from the req.user this middleware sets.
 app.use('/api/organizations', authenticate, organizationRoutes);
+// CONCEPT: notifications. Each user's own stored notifications.
+app.use('/api/notifications', authenticate, notificationRoutes);
 app.use('/api', authenticate, projectRoutes);
 app.use('/api', authenticate, taskRoutes);
 // CONCEPT: client-portal-backend. Mounted under its own /api/client
