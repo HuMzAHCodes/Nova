@@ -4,6 +4,7 @@ import { AppError } from '../lib/AppError.js';
 import { getIO } from '../lib/socket.js';
 import { CreateTaskInput, UpdateTaskInput, TASK_ALLOWED_SORT_FIELDS } from '../validators/taskValidators.js';
 import { PaginationQuery } from '../validators/paginationValidators.js';
+import { notifyDeliverableDecision, notifyNewAssignees } from './notificationService.js';
 
 // CONCEPT: task-model-design + multi-tenancy-and-architecture. Every
 // function here takes tenantId as an explicit, required parameter and
@@ -15,7 +16,7 @@ import { PaginationQuery } from '../validators/paginationValidators.js';
 // loading the project, so this data check has to live here, next to the
 // write. A missing project and another tenant's project give the same
 // answer (404), so project IDs cannot be probed across tenants.
-export async function create(tenantId: string, projectId: string, input: CreateTaskInput) {
+export async function create(tenantId: string, projectId: string, input: CreateTaskInput, actorId: string) {
   const projectInTenant = await Project.exists({ _id: projectId, organizationId: tenantId });
   if (!projectInTenant) {
     throw new AppError(404, 'Project not found');
@@ -31,6 +32,11 @@ export async function create(tenantId: string, projectId: string, input: CreateT
     // portal is meant to show as awaiting action.
     ...(input.isDeliverable ? { approvalStatus: 'pending' } : {}),
   });
+
+  // CONCEPT: notifications. Everyone assigned at creation is new, except the
+  // person creating the task. Never throws.
+  await notifyNewAssignees(tenantId, task, [], actorId);
+
   return task;
 }
 
@@ -80,7 +86,10 @@ export async function listForProject(tenantId: string, projectId: string, query:
   };
 }
 
-export async function update(tenantId: string, taskId: string, input: UpdateTaskInput) {
+export async function update(tenantId: string, taskId: string, input: UpdateTaskInput, actorId: string) {
+  // The assignees BEFORE the change, so only people added now are notified.
+  const before = await Task.findOne({ _id: taskId, organizationId: tenantId }).select('assignedTo');
+
   const task = await Task.findOneAndUpdate(
     { _id: taskId, organizationId: tenantId },
     { $set: input },
@@ -89,6 +98,10 @@ export async function update(tenantId: string, taskId: string, input: UpdateTask
 
   if (!task) {
     throw new AppError(404, 'Task not found');
+  }
+
+  if (input.assignedTo) {
+    await notifyNewAssignees(tenantId, task, before?.assignedTo ?? [], actorId);
   }
 
   return task;
@@ -130,6 +143,9 @@ export async function approveDeliverable(tenantId: string, taskId: string) {
     approvalStatus: task.approvalStatus,
   });
 
+  // CONCEPT: notifications. Stored and pushed after the status event; never throws.
+  await notifyDeliverableDecision(tenantId, task, 'approved');
+
   return task;
 }
 
@@ -149,6 +165,8 @@ export async function rejectDeliverable(tenantId: string, taskId: string, feedba
     projectId: task.projectId,
     approvalStatus: task.approvalStatus,
   });
+
+  await notifyDeliverableDecision(tenantId, task, 'rejected');
 
   return task;
 }
