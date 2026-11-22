@@ -104,23 +104,35 @@ function isDuplicateKeyError(error: unknown): boolean {
   );
 }
 
+// How long a claim may stay 'processing' before it is assumed to belong to
+// a crashed handler. Handling one event takes milliseconds, so 5 minutes is
+// far longer than any healthy run and still well inside Stripe's retry
+// schedule.
+export const STALE_CLAIM_MS = 5 * 60 * 1000;
+
 // CONCEPT: webhook-idempotency. Stripe delivers events at least once, so the
 // same event can arrive twice (a lost response, a retry, a manual resend).
-// This wrapper makes handling safe to repeat:
-//   1. CLAIM the event by inserting its ID. The unique index makes this
-//      atomic, so two simultaneous copies cannot both win.
-//   2. A duplicate-key error means the event was already handled: do nothing
-//      and return normally, so the controller answers 200.
-//   3. If the real handler fails, RELEASE the claim and rethrow, so Stripe's
+// This wrapper makes handling safe to repeat and safe to crash in:
+//   1. CLAIM the event by inserting its ID with status 'processing'. The
+//      unique index makes this atomic, so two simultaneous copies cannot
+//      both win.
+//   2. A duplicate-key error means a claim already exists. Look at it:
+//        - done (or an old claim written before statuses existed): already
+//          handled, do nothing and return, so the controller answers 200.
+//        - processing but OLD: the earlier handler crashed. Take the claim
+//          over (an atomic update that only one caller can win) and handle
+//          the event now.
+//        - processing and FRESH: another delivery is working on it right
+//          now. Answer 409 so Stripe retries later, instead of 200, which
+//          would tell Stripe to stop and could lose the event if that other
+//          handler then crashes.
+//   3. After the handler succeeds, mark the claim 'done'.
+//   4. If the handler fails, RELEASE the claim and rethrow, so Stripe's
 //      retry is processed instead of being wrongly skipped.
 export async function processWebhookEvent(event: Stripe.Event): Promise<void> {
-  try {
-    await ProcessedStripeEvent.create({ eventId: event.id });
-  } catch (error) {
-    if (isDuplicateKeyError(error)) {
-      return;
-    }
-    throw error;
+  const shouldHandle = await claimEvent(event.id);
+  if (!shouldHandle) {
+    return;
   }
 
   try {
@@ -131,6 +143,45 @@ export async function processWebhookEvent(event: Stripe.Event): Promise<void> {
     await ProcessedStripeEvent.deleteOne({ eventId: event.id }).catch(() => undefined);
     throw error;
   }
+
+  await ProcessedStripeEvent.updateOne({ eventId: event.id }, { $set: { status: 'done' } });
+}
+
+// Returns true if the caller now owns the event and must handle it, false
+// if it was already handled. Throws a 409 when another delivery is in flight.
+async function claimEvent(eventId: string): Promise<boolean> {
+  try {
+    await ProcessedStripeEvent.create({ eventId, status: 'processing', claimedAt: new Date() });
+    return true;
+  } catch (error) {
+    if (!isDuplicateKeyError(error)) {
+      throw error;
+    }
+  }
+
+  // lean() so Mongoose does not fill in defaults: an old record without a
+  // status must stay recognizable as old.
+  const existing = await ProcessedStripeEvent.findOne({ eventId }).lean();
+  if (!existing) {
+    // The claim vanished between the insert and this read (a failed handler
+    // released it). Ask Stripe to retry rather than guess.
+    throw new AppError(409, 'Event is being processed');
+  }
+  if (existing.status !== 'processing') {
+    return false;
+  }
+
+  // Only one caller can match this filter: it requires the claim to still be
+  // old, and the update makes it fresh.
+  const takenOver = await ProcessedStripeEvent.findOneAndUpdate(
+    { eventId, status: 'processing', claimedAt: { $lt: new Date(Date.now() - STALE_CLAIM_MS) } },
+    { $set: { claimedAt: new Date() } }
+  );
+  if (takenOver) {
+    return true;
+  }
+
+  throw new AppError(409, 'Event is being processed');
 }
 
 // CONCEPT: stripe-billing. Stripe is the source of truth. This function is
