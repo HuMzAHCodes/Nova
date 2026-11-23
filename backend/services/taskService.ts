@@ -1,6 +1,7 @@
 import Task from '../models/Task.js';
 import Project from '../models/Project.js';
 import User from '../models/User.js';
+import Comment from '../models/Comment.js';
 import { AppError } from '../lib/AppError.js';
 import { getIO } from '../lib/socket.js';
 import { CreateTaskInput, UpdateTaskInput, TASK_ALLOWED_SORT_FIELDS } from '../validators/taskValidators.js';
@@ -141,6 +142,9 @@ export async function remove(tenantId: string, taskId: string) {
   if (!task) {
     throw new AppError(404, 'Task not found');
   }
+
+  // CONCEPT: comments (cascade). A task's comments go with it.
+  await Comment.deleteMany({ organizationId: tenantId, taskId: task._id });
 }
 
 // CONCEPT: client-portal-backend. These two functions are called ONLY
