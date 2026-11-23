@@ -4,6 +4,7 @@ import { requireRole } from '../middleware/requireRole.js';
 import {
   createClientComment,
   listComments,
+  listMentionableUsers,
   updateComment,
   deleteComment,
 } from '../controllers/commentController.js';
@@ -18,6 +19,7 @@ const router = Router();
 
 router.post('/tasks/:taskId/comments', scopeToTenant, requireRole('client'), createClientComment);
 router.get('/tasks/:taskId/comments', scopeToTenant, requireRole('client'), listComments);
+router.get('/projects/:projectId/mentionable', scopeToTenant, requireRole('client'), listMentionableUsers);
 router.patch('/comments/:commentId', scopeToTenant, requireRole('client'), updateComment);
 router.delete('/comments/:commentId', scopeToTenant, requireRole('client'), deleteComment);
 
