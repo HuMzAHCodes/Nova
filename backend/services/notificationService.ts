@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import Notification, { NotificationType } from '../models/Notification.js';
 import User from '../models/User.js';
+import ClientAccess from '../models/ClientAccess.js';
 import { AppError } from '../lib/AppError.js';
 import { getIO } from '../lib/socket.js';
 import { PaginationQuery } from '../validators/paginationValidators.js';
@@ -111,25 +112,60 @@ export async function notifyClientJoined(tenantId: string, client: { name: strin
   }
 }
 
-// CONCEPT: comments. A new comment tells the task's assignees and the people
-// who already commented on it, except the author. The text is generic and
-// never contains the comment body.
+// CONCEPT: comments + comment-visibility. A new comment tells the task's
+// assignees and the people who already commented on it, except the author.
+// When the author is a client, the owners and admins are told as well (they
+// may otherwise never learn the client wrote). Who may be told is then
+// filtered by visibility:
+//   - an INTERNAL comment never notifies a client;
+//   - a SHARED comment notifies a client only while they still hold a grant
+//     on the project.
+// The text is generic and never contains the comment body.
 export async function notifyNewComment(
   tenantId: string,
   task: { _id: Types.ObjectId; projectId: Types.ObjectId; title: string; assignedTo: Types.ObjectId[] },
-  authorId: string,
+  author: { id: string; role: 'staff' | 'client' },
+  visibility: 'internal' | 'shared',
   earlierCommenterIds: Array<string | Types.ObjectId>
 ): Promise<void> {
-  const recipientIds = [...task.assignedTo, ...earlierCommenterIds].map(String).filter((id) => id !== authorId);
+  try {
+    const managerIds =
+      author.role === 'client'
+        ? (await User.find({ organizationId: tenantId, role: { $in: ['owner', 'admin'] } }).select('_id')).map(
+            (manager) => manager._id
+          )
+        : [];
 
-  await createNotifications({
-    tenantId,
-    recipientIds,
-    type: 'comment_added',
-    message: `New comment on "${task.title}"`,
-    projectId: task.projectId,
-    taskId: task._id,
-  });
+    const candidateIds = [...new Set([...task.assignedTo, ...earlierCommenterIds, ...managerIds].map(String))].filter(
+      (id) => id !== author.id
+    );
+    if (candidateIds.length === 0) return;
+
+    const candidates = await User.find({ _id: { $in: candidateIds }, organizationId: tenantId }).select('_id role');
+    const staffIds = candidates.filter((user) => user.role !== 'client').map((user) => String(user._id));
+    const clientIds = candidates.filter((user) => user.role === 'client').map((user) => String(user._id));
+
+    let allowedClientIds: string[] = [];
+    if (visibility === 'shared' && clientIds.length > 0) {
+      const grants = await ClientAccess.find({
+        userId: { $in: clientIds },
+        organizationId: tenantId,
+        projectId: task.projectId,
+      }).select('userId');
+      allowedClientIds = grants.map((grant) => String(grant.userId));
+    }
+
+    await createNotifications({
+      tenantId,
+      recipientIds: [...staffIds, ...allowedClientIds],
+      type: 'comment_added',
+      message: `New comment on "${task.title}"`,
+      projectId: task.projectId,
+      taskId: task._id,
+    });
+  } catch (error) {
+    console.error('Notifying about a new comment failed:', error);
+  }
 }
 
 // Notifies only people who were ADDED to assignedTo, never the person who
