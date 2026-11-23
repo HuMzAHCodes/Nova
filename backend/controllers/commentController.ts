@@ -41,6 +41,14 @@ export const listComments = catchAsync(async (req: TenantScopedRequest, res: Res
   res.status(200).json({ success: true, data: { comments }, pagination });
 });
 
+// FLOW: GET /api/projects/:projectId/mentionable (staff) and
+// GET /api/client/projects/:projectId/mentionable (clients). The actor's role
+// decides which people are returned.
+export const listMentionableUsers = catchAsync(async (req: TenantScopedRequest, res: Response) => {
+  const users = await commentService.listMentionable(req.tenantId!, req.params.projectId, actorFrom(req));
+  sendSuccess(res, { users });
+});
+
 // FLOW: PATCH /api/comments/:commentId
 export const updateComment = catchAsync(async (req: TenantScopedRequest, res: Response) => {
   const input = updateCommentSchema.parse(req.body);
