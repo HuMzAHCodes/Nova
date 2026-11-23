@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Organization from '../models/Organization.js';
 import { AppError } from '../lib/AppError.js';
+import { notifyClientJoined } from './notificationService.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt.js';
 import { generateToken, hashToken } from '../lib/tokens.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
@@ -188,14 +189,23 @@ export async function resetPassword(submittedToken: string, newPassword: string)
   const user = await User.findOne({
     passwordResetTokenHash: tokenHash,
     passwordResetExpires: { $gt: new Date() },
-  }).select('+passwordResetTokenHash +passwordResetExpires');
+  }).select('+passwordResetTokenHash +passwordResetExpires +invitePending');
 
   if (!user) {
     throw new AppError(400, 'Invalid or expired reset token');
   }
 
+  // CONCEPT: notifications. A client who is still marked pending is accepting
+  // their invite, not recovering a forgotten password.
+  const wasAcceptingInvite = user.role === 'client' && user.invitePending === true;
+
   user.passwordHash = newPassword; // re-hashed automatically by the pre-save hook
   user.passwordResetTokenHash = undefined; // single-use — clear so it can't be replayed
   user.passwordResetExpires = undefined;
+  user.invitePending = false;
   await user.save();
+
+  if (wasAcceptingInvite) {
+    await notifyClientJoined(String(user.organizationId), user);
+  }
 }
