@@ -2,10 +2,12 @@ import { Types } from 'mongoose';
 import Comment, { IComment } from '../models/Comment.js';
 import Task, { ITask } from '../models/Task.js';
 import ClientAccess from '../models/ClientAccess.js';
+import User from '../models/User.js';
+import Project from '../models/Project.js';
 import { AppError } from '../lib/AppError.js';
 import { getIO } from '../lib/socket.js';
 import { CreateCommentInput, UpdateCommentInput, ThreadQuery } from '../validators/commentValidators.js';
-import { notifyNewComment } from './notificationService.js';
+import { notifyNewComment, notifyMentions } from './notificationService.js';
 
 // CONCEPT: comments + comment-visibility (see docs/concepts/comments and
 // docs/concepts/comment-visibility). Every function takes the organization id
@@ -51,6 +53,51 @@ async function loadTaskForActor(tenantId: string, taskId: string, actor: Actor):
   return task;
 }
 
+// CONCEPT: mentions. Checks every mentioned id against the rules and returns
+// the cleaned list. An invalid id rejects the WHOLE request (400), never
+// silently dropped, because the author believes that person was alerted.
+//   - The author themselves is ignored (no self-notification), not an error.
+//   - Staff may mention any owner, admin or member of the organization, and a
+//     client only in a SHARED comment and only while that client holds a grant
+//     on the project.
+//   - A client may mention owners and admins only.
+// One query per kind, comparing counts to the number of unique ids (the same
+// technique as assignee validation).
+async function resolveMentions(
+  tenantId: string,
+  actor: Actor,
+  projectId: Types.ObjectId | string,
+  visibility: Visibility,
+  mentionIds: string[]
+): Promise<string[]> {
+  const uniqueIds = [...new Set(mentionIds)].filter((id) => id !== actor.userId);
+  if (uniqueIds.length === 0) return [];
+
+  const candidates = await User.find({ _id: { $in: uniqueIds }, organizationId: tenantId }).select('role');
+
+  let grantedClientIds = new Set<string>();
+  const clientCandidateIds = candidates.filter((user) => user.role === 'client').map((user) => String(user._id));
+  if (!isClient(actor) && visibility === 'shared' && clientCandidateIds.length > 0) {
+    const grants = await ClientAccess.find({
+      userId: { $in: clientCandidateIds },
+      organizationId: tenantId,
+      projectId,
+    }).select('userId');
+    grantedClientIds = new Set(grants.map((grant) => String(grant.userId)));
+  }
+
+  const validCount = candidates.filter((user) => {
+    if (isClient(actor)) return user.role === 'owner' || user.role === 'admin';
+    if (user.role === 'client') return grantedClientIds.has(String(user._id));
+    return true; // owner, admin or member of this organization
+  }).length;
+
+  if (validCount !== uniqueIds.length) {
+    throw new AppError(400, 'One or more mentioned users cannot be mentioned in this comment');
+  }
+  return uniqueIds;
+}
+
 // Names of the rooms. Shared events go to the ordinary project room (staff
 // and granted clients are both in it). Internal events go ONLY to the
 // staff-only room, which clients can never join.
@@ -67,6 +114,7 @@ function toPayload(comment: IComment) {
     authorId: comment.authorId,
     authorRole: comment.authorRole,
     visibility: comment.visibility,
+    mentions: comment.mentions,
     body: comment.body,
     editedAt: comment.editedAt,
     createdAt: comment.createdAt,
@@ -102,6 +150,9 @@ export async function create(tenantId: string, taskId: string, actor: Actor, inp
     visibility = 'shared';
   }
 
+  // Mentions are validated BEFORE anything is saved.
+  const mentionedIds = await resolveMentions(tenantId, actor, task.projectId, visibility, input.mentions);
+
   // People who already commented on this task, read BEFORE this comment is
   // saved. The notification step decides who may actually be told.
   const earlierCommenterIds = await Comment.distinct('authorId', { organizationId: tenantId, taskId: task._id });
@@ -113,6 +164,7 @@ export async function create(tenantId: string, taskId: string, actor: Actor, inp
     authorId: actor.userId,
     authorRole: isClient(actor) ? 'client' : 'staff',
     visibility,
+    mentions: mentionedIds,
     body: input.body,
   });
 
@@ -122,7 +174,8 @@ export async function create(tenantId: string, taskId: string, actor: Actor, inp
     task,
     { id: actor.userId, role: isClient(actor) ? 'client' : 'staff' },
     visibility,
-    earlierCommenterIds
+    earlierCommenterIds,
+    mentionedIds
   );
 
   return toPayload(comment);
@@ -168,11 +221,29 @@ async function findOwnComment(tenantId: string, commentId: string, actor: Actor)
 export async function update(tenantId: string, commentId: string, actor: Actor, input: UpdateCommentInput) {
   const comment = await findOwnComment(tenantId, commentId, actor);
 
+  // CONCEPT: mentions. Sending a list replaces it, validated with the same
+  // rules and the comment's own (fixed) visibility; only people NEWLY added
+  // are notified. Leaving the list out changes nothing.
+  let newlyMentionedIds: string[] = [];
+  if (input.mentions !== undefined) {
+    const validated = await resolveMentions(tenantId, actor, comment.projectId, comment.visibility, input.mentions);
+    const previous = new Set(comment.mentions.map(String));
+    newlyMentionedIds = validated.filter((id) => !previous.has(id));
+    comment.mentions = validated.map((id) => new Types.ObjectId(id));
+  }
+
   comment.body = input.body;
   comment.editedAt = new Date();
   await comment.save();
 
   emitForVisibility(comment.projectId, comment.visibility, 'comment:updated', toPayload(comment));
+
+  if (newlyMentionedIds.length > 0) {
+    const task = await Task.findOne({ _id: comment.taskId, organizationId: tenantId });
+    if (task) {
+      await notifyMentions(tenantId, task, newlyMentionedIds);
+    }
+  }
   return toPayload(comment);
 }
 
@@ -197,4 +268,36 @@ export async function remove(tenantId: string, commentId: string, actor: Actor) 
     taskId: comment.taskId,
     projectId: comment.projectId,
   });
+}
+
+// CONCEPT: mentions. The people the frontend offers when typing "@". Only id,
+// name and role are returned, never email or anything else.
+//   - Staff: the owners, admins and members of the organization, plus the
+//     clients granted on this project.
+//   - A client: only the owners and admins (and only for a project they hold
+//     a grant for).
+export async function listMentionable(tenantId: string, projectId: string, actor: Actor) {
+  const projectInOrganization = await Project.exists({ _id: projectId, organizationId: tenantId });
+  if (!projectInOrganization) {
+    throw new AppError(404, 'Project not found');
+  }
+
+  let users;
+  if (isClient(actor)) {
+    if (!(await clientHasGrant(tenantId, actor.userId, projectId))) {
+      throw new AppError(404, 'Project not found');
+    }
+    users = await User.find({ organizationId: tenantId, role: { $in: ['owner', 'admin'] } }).select('name role');
+  } else {
+    const grants = await ClientAccess.find({ organizationId: tenantId, projectId }).select('userId');
+    users = await User.find({
+      organizationId: tenantId,
+      $or: [
+        { role: { $in: ['owner', 'admin', 'member'] } },
+        { role: 'client', _id: { $in: grants.map((grant) => grant.userId) } },
+      ],
+    }).select('name role');
+  }
+
+  return users.map((user) => ({ _id: user._id, name: user.name, role: user.role }));
 }
