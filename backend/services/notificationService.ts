@@ -112,6 +112,24 @@ export async function notifyClientJoined(tenantId: string, client: { name: strin
   }
 }
 
+// CONCEPT: mentions. One dedicated notification per mentioned person. The text
+// is generic and never contains the comment body. Never throws.
+export async function notifyMentions(
+  tenantId: string,
+  task: { _id: Types.ObjectId; projectId: Types.ObjectId; title: string },
+  mentionedIds: string[]
+): Promise<void> {
+  if (mentionedIds.length === 0) return;
+  await createNotifications({
+    tenantId,
+    recipientIds: mentionedIds,
+    type: 'comment_mention',
+    message: `You were mentioned in a comment on "${task.title}"`,
+    projectId: task.projectId,
+    taskId: task._id,
+  });
+}
+
 // CONCEPT: comments + comment-visibility. A new comment tells the task's
 // assignees and the people who already commented on it, except the author.
 // When the author is a client, the owners and admins are told as well (they
@@ -126,9 +144,16 @@ export async function notifyNewComment(
   task: { _id: Types.ObjectId; projectId: Types.ObjectId; title: string; assignedTo: Types.ObjectId[] },
   author: { id: string; role: 'staff' | 'client' },
   visibility: 'internal' | 'shared',
-  earlierCommenterIds: Array<string | Types.ObjectId>
+  earlierCommenterIds: Array<string | Types.ObjectId>,
+  mentionedIds: string[] = []
 ): Promise<void> {
   try {
+    // CONCEPT: mentions. Mentioned people get their own, dedicated notification
+    // (already validated by the comment service). They are removed from the
+    // normal list below so nobody is told twice about one comment.
+    await notifyMentions(tenantId, task, mentionedIds);
+    const alreadyMentioned = new Set(mentionedIds);
+
     const managerIds =
       author.role === 'client'
         ? (await User.find({ organizationId: tenantId, role: { $in: ['owner', 'admin'] } }).select('_id')).map(
@@ -137,7 +162,7 @@ export async function notifyNewComment(
         : [];
 
     const candidateIds = [...new Set([...task.assignedTo, ...earlierCommenterIds, ...managerIds].map(String))].filter(
-      (id) => id !== author.id
+      (id) => id !== author.id && !alreadyMentioned.has(id)
     );
     if (candidateIds.length === 0) return;
 
