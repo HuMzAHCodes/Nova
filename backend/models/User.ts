@@ -25,6 +25,10 @@ export interface IUser extends Document {
   // why. Both are undefined/absent once unused (no active
   // verification/reset in progress) or after being consumed (single-use).
   emailVerified: boolean;
+  // CONCEPT: notifications. True only for a NEW client who was invited and has
+  // not set a password yet. Cleared (and the owner notified) the first time
+  // they do. Never selected by default and never part of any response.
+  invitePending?: boolean;
   emailVerificationTokenHash?: string;
   emailVerificationExpires?: Date;
   passwordResetTokenHash?: string;
@@ -102,6 +106,11 @@ const userSchema = new Schema<IUser>(
     emailVerified: {
       type: Boolean,
       default: false,
+    },
+    invitePending: {
+      type: Boolean,
+      default: false,
+      select: false,
     },
     emailVerificationTokenHash: {
       type: String,
