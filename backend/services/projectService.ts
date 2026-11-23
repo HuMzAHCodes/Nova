@@ -1,5 +1,6 @@
 import Project from '../models/Project.js';
 import Task from '../models/Task.js';
+import Comment from '../models/Comment.js';
 import ClientAccess from '../models/ClientAccess.js';
 import User from '../models/User.js';
 import { AppError } from '../lib/AppError.js';
@@ -109,6 +110,7 @@ export async function remove(tenantId: string, projectId: string) {
   // and the delete can be repeated safely.
   await Promise.all([
     Task.deleteMany({ organizationId: tenantId, projectId }),
+    Comment.deleteMany({ organizationId: tenantId, projectId }),
     ClientAccess.deleteMany({ organizationId: tenantId, projectId }),
     removeProjectRoleOverrides(tenantId, projectId),
   ]);
