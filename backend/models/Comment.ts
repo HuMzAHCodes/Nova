@@ -13,6 +13,9 @@ export interface IComment extends Document {
   // clients who may see the deliverable. Fixed when the comment is created.
   visibility: 'internal' | 'shared';
   body: string;
+  // CONCEPT: mentions. Ids of the users tagged in this comment, validated by
+  // the service. The text is never parsed for names.
+  mentions: Types.ObjectId[];
   editedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -63,6 +66,11 @@ const commentSchema = new Schema<IComment>(
       trim: true,
       minlength: 1,
       maxlength: 2000,
+    },
+    mentions: {
+      type: [Schema.Types.ObjectId],
+      ref: 'User',
+      default: [],
     },
     editedAt: {
       type: Date,
