@@ -2,7 +2,12 @@ import { Response } from 'express';
 import { TenantScopedRequest } from '../middleware/scopeToTenant.js';
 import { catchAsync } from '../lib/catchAsync.js';
 import { sendSuccess } from '../lib/response.js';
-import { createCommentSchema, updateCommentSchema, threadQuerySchema } from '../validators/commentValidators.js';
+import {
+  createCommentSchema,
+  createClientCommentSchema,
+  updateCommentSchema,
+  threadQuerySchema,
+} from '../validators/commentValidators.js';
 import * as commentService from '../services/commentService.js';
 
 // CONCEPT: comments. The author is always the signed-in user; no author,
@@ -16,10 +21,23 @@ export const createComment = catchAsync(async (req: TenantScopedRequest, res: Re
   sendSuccess(res, { comment }, 201);
 });
 
+// FLOW: POST /api/client/tasks/:taskId/comments. The client schema has no
+// visibility field, so any forged value is stripped before the service runs.
+export const createClientComment = catchAsync(async (req: TenantScopedRequest, res: Response) => {
+  const input = createClientCommentSchema.parse(req.body);
+  const comment = await commentService.create(req.tenantId!, req.params.taskId, actorFrom(req), input);
+  sendSuccess(res, { comment }, 201);
+});
+
 // FLOW: GET /api/tasks/:taskId/comments?page=&limit=
 export const listComments = catchAsync(async (req: TenantScopedRequest, res: Response) => {
   const query = threadQuerySchema.parse(req.query);
-  const { comments, pagination } = await commentService.listForTask(req.tenantId!, req.params.taskId, query);
+  const { comments, pagination } = await commentService.listForTask(
+    req.tenantId!,
+    req.params.taskId,
+    actorFrom(req),
+    query
+  );
   res.status(200).json({ success: true, data: { comments }, pagination });
 });
 
