@@ -111,6 +111,27 @@ export async function notifyClientJoined(tenantId: string, client: { name: strin
   }
 }
 
+// CONCEPT: comments. A new comment tells the task's assignees and the people
+// who already commented on it, except the author. The text is generic and
+// never contains the comment body.
+export async function notifyNewComment(
+  tenantId: string,
+  task: { _id: Types.ObjectId; projectId: Types.ObjectId; title: string; assignedTo: Types.ObjectId[] },
+  authorId: string,
+  earlierCommenterIds: Array<string | Types.ObjectId>
+): Promise<void> {
+  const recipientIds = [...task.assignedTo, ...earlierCommenterIds].map(String).filter((id) => id !== authorId);
+
+  await createNotifications({
+    tenantId,
+    recipientIds,
+    type: 'comment_added',
+    message: `New comment on "${task.title}"`,
+    projectId: task.projectId,
+    taskId: task._id,
+  });
+}
+
 // Notifies only people who were ADDED to assignedTo, never the person who
 // made the change, so editing other fields or re-sending the same list
 // notifies nobody.
