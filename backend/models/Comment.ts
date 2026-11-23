@@ -9,6 +9,9 @@ export interface IComment extends Document {
   taskId: Types.ObjectId;
   authorId: Types.ObjectId;
   authorRole: 'staff' | 'client';
+  // CONCEPT: comment-visibility. internal = staff only, shared = staff and the
+  // clients who may see the deliverable. Fixed when the comment is created.
+  visibility: 'internal' | 'shared';
   body: string;
   editedAt?: Date;
   createdAt: Date;
@@ -42,6 +45,14 @@ const commentSchema = new Schema<IComment>(
     authorRole: {
       type: String,
       enum: ['staff', 'client'],
+      required: true,
+    },
+    // Defaults to the SAFE side: a comment whose visibility was never set is
+    // internal. Never changed after creation (see commentService.update).
+    visibility: {
+      type: String,
+      enum: ['internal', 'shared'],
+      default: 'internal',
       required: true,
     },
     // Plain text only (no HTML), 1 to 2000 characters. Also checked by the
