@@ -95,6 +95,22 @@ export async function notifyDeliverableDecision(
   }
 }
 
+// Told to the owner and admins when an invited client sets their password for
+// the first time.
+export async function notifyClientJoined(tenantId: string, client: { name: string }): Promise<void> {
+  try {
+    const managers = await User.find({ organizationId: tenantId, role: { $in: ['owner', 'admin'] } }).select('_id');
+    await createNotifications({
+      tenantId,
+      recipientIds: managers.map((manager) => manager._id),
+      type: 'client_joined',
+      message: `${client.name} accepted their invite and set a password`,
+    });
+  } catch (error) {
+    console.error('Notifying about an accepted invite failed:', error);
+  }
+}
+
 // Notifies only people who were ADDED to assignedTo, never the person who
 // made the change, so editing other fields or re-sending the same list
 // notifies nobody.
