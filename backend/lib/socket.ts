@@ -66,6 +66,12 @@ export function initializeSocket(httpServer: http.Server): Server {
         const hasAccess = await userHasProjectAccess(socket.data.user, projectId);
         if (hasAccess) {
           socket.join(`project:${projectId}`);
+          // CONCEPT: comments. Staff (not clients) also join the staff-only room
+          // of the project; comment events are emitted there so a client who
+          // shares the ordinary project room never receives them.
+          if (socket.data.user.role !== 'client') {
+            socket.join(`project:${projectId}:staff`);
+          }
         }
       } catch (error) {
         console.error('joinProject failed:', error);
