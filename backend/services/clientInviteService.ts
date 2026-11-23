@@ -65,6 +65,9 @@ export async function inviteClient(tenantId: string, projectId: string, input: I
       // client is about to go through a password-setup link anyway,
       // which itself proves they control the inbox.
       emailVerified: true,
+      // CONCEPT: notifications. Marks a client who has not yet set a password;
+      // authService.resetPassword clears it and notifies the owner and admins.
+      invitePending: true,
     });
     await user.save();
   }
