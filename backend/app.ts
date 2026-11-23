@@ -7,6 +7,7 @@ import authRoutes from './routes/authRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import commentRoutes from './routes/commentRoutes.js';
+import clientCommentRoutes from './routes/clientCommentRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
@@ -76,6 +77,8 @@ app.use('/api', authenticate, commentRoutes);
 // never requireRole/requireProjectRole, keeping Client access
 // structurally separate from internal RBAC.
 app.use('/api/client', authenticate, clientRoutes);
+// CONCEPT: comment-visibility. Client comment endpoints (shared comments only).
+app.use('/api/client', authenticate, clientCommentRoutes);
 // The invite flow is an INTERNAL action (an Owner/Admin granting
 // access), so it's mounted at the plain /api root, alongside
 // projectRoutes/taskRoutes — not under /api/client, which is reserved
