@@ -6,6 +6,7 @@ import { authenticate } from './middleware/authenticate.js';
 import authRoutes from './routes/authRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import commentRoutes from './routes/commentRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
@@ -68,6 +69,8 @@ app.use('/api/organizations', authenticate, organizationRoutes);
 app.use('/api/notifications', authenticate, notificationRoutes);
 app.use('/api', authenticate, projectRoutes);
 app.use('/api', authenticate, taskRoutes);
+// CONCEPT: comments. Staff comment endpoints (tasks/:taskId/comments, comments/:commentId).
+app.use('/api', authenticate, commentRoutes);
 // CONCEPT: client-portal-backend. Mounted under its own /api/client
 // namespace — every route inside clientRoutes uses scopeToClientProject,
 // never requireRole/requireProjectRole, keeping Client access
