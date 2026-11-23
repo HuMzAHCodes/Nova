@@ -3,7 +3,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 // CONCEPT: notifications (see docs/concepts/notifications). One document
 // per recipient: a small stored message addressed to a single user.
 // Saving it is the source of truth; the live socket push is a bonus.
-export type NotificationType = 'deliverable_approved' | 'deliverable_rejected' | 'task_assigned' | 'client_joined';
+export type NotificationType = 'deliverable_approved' | 'deliverable_rejected' | 'task_assigned' | 'client_joined' | 'comment_added';
 
 export interface INotification extends Document {
   organizationId: Types.ObjectId;
@@ -34,7 +34,7 @@ const notificationSchema = new Schema<INotification>(
     },
     type: {
       type: String,
-      enum: ['deliverable_approved', 'deliverable_rejected', 'task_assigned', 'client_joined'],
+      enum: ['deliverable_approved', 'deliverable_rejected', 'task_assigned', 'client_joined', 'comment_added'],
       required: true,
     },
     message: {
