@@ -1,5 +1,6 @@
 import Task from '../models/Task.js';
 import Project from '../models/Project.js';
+import User from '../models/User.js';
 import { AppError } from '../lib/AppError.js';
 import { getIO } from '../lib/socket.js';
 import { CreateTaskInput, UpdateTaskInput, TASK_ALLOWED_SORT_FIELDS } from '../validators/taskValidators.js';
@@ -9,6 +10,27 @@ import { notifyDeliverableDecision, notifyNewAssignees } from './notificationSer
 // CONCEPT: task-model-design + multi-tenancy-and-architecture. Every
 // function here takes tenantId as an explicit, required parameter and
 // filters by it — same tenant-safety pattern as projectService.
+
+// CONCEPT: assignee-validation (KL-15). Assignee ids come straight from the
+// request body, so they cannot be trusted: without this check a task could
+// be assigned to a user of ANOTHER organization (or to no user at all).
+// Every id must be a staff user (owner, admin or member) of the caller's own
+// organization. Clients are excluded: they view deliverables through the
+// client portal and do not work on tasks. One bad id rejects the whole
+// request, so a task is never saved half-valid. Duplicate ids are fine.
+async function assertAssigneesBelongToOrganization(tenantId: string, assigneeIds: string[]) {
+  const uniqueAssigneeIds = [...new Set(assigneeIds)];
+  if (uniqueAssigneeIds.length === 0) return;
+
+  const validStaffCount = await User.countDocuments({
+    _id: { $in: uniqueAssigneeIds },
+    organizationId: tenantId,
+    role: { $in: ['owner', 'admin', 'member'] },
+  });
+  if (validStaffCount !== uniqueAssigneeIds.length) {
+    throw new AppError(400, 'Assignees must be staff members of this organization');
+  }
+}
 
 // CONCEPT: parent-resource-check. A task may only be created under a
 // project that exists INSIDE the caller's own organization. The role
@@ -21,6 +43,8 @@ export async function create(tenantId: string, projectId: string, input: CreateT
   if (!projectInTenant) {
     throw new AppError(404, 'Project not found');
   }
+
+  await assertAssigneesBelongToOrganization(tenantId, input.assignedTo);
 
   const task = await Task.create({
     organizationId: tenantId,
@@ -87,6 +111,11 @@ export async function listForProject(tenantId: string, projectId: string, query:
 }
 
 export async function update(tenantId: string, taskId: string, input: UpdateTaskInput, actorId: string) {
+  // Checked before anything is written; only when the request changes the assignees.
+  if (input.assignedTo) {
+    await assertAssigneesBelongToOrganization(tenantId, input.assignedTo);
+  }
+
   // The assignees BEFORE the change, so only people added now are notified.
   const before = await Task.findOne({ _id: taskId, organizationId: tenantId }).select('assignedTo');
 
