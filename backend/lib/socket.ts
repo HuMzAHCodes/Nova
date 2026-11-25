@@ -6,6 +6,8 @@ import Project from '../models/Project.js';
 import ClientAccess from '../models/ClientAccess.js';
 import Session from '../models/Session.js';
 import { createInMemoryPresenceStore, visibleEntriesFor, PresenceStore } from './presence.js';
+import { getRedisClient } from './redis.js';
+import { createRedisPresenceStore } from './redisPresenceStore.js';
 
 let io: Server | null = null;
 
@@ -29,7 +31,12 @@ const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
 // CONCEPT: socketio-realtime-deliverables. Called once from server.ts,
 // after the shared http.Server is created — see the concept notes on
 // why Socket.io must attach to the SAME http.Server Express uses.
-export function initializeSocket(httpServer: http.Server): Server {
+export interface SocketOptions {
+  // Tests (and later two-server setups) pass their own presence store.
+  presenceStore?: PresenceStore;
+}
+
+export function initializeSocket(httpServer: http.Server, options: SocketOptions = {}): Server {
   io = new Server(httpServer, {
     cors: { origin: true, credentials: true },
   });
@@ -38,8 +45,13 @@ export function initializeSocket(httpServer: http.Server): Server {
   // connection here, not per event — a WebSocket connection is
   // long-lived and stateful, unlike a REST request. See concept notes
   // for why re-verifying on every event would be redundant.
-  // CONCEPT: presence. One store per server; in-memory today, Redis later.
-  const presenceStore: PresenceStore = createInMemoryPresenceStore();
+  // CONCEPT: redis-presence-store. One store per server: shared through Redis
+  // when REDIS_URL is set (so several servers agree on who is present),
+  // in memory otherwise. A store passed in through options wins.
+  const redisClient = getRedisClient();
+  const presenceStore: PresenceStore =
+    options.presenceStore ??
+    (redisClient ? createRedisPresenceStore(redisClient) : createInMemoryPresenceStore());
 
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
