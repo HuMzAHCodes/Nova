@@ -8,6 +8,7 @@ import Session from '../models/Session.js';
 import { createInMemoryPresenceStore, visibleEntriesFor, PresenceStore } from './presence.js';
 import { getRedisClient } from './redis.js';
 import { createRedisPresenceStore } from './redisPresenceStore.js';
+import { createDefaultRedisAdapterHandle, RedisAdapterHandle } from './redisAdapter.js';
 
 let io: Server | null = null;
 
@@ -34,12 +35,30 @@ const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
 export interface SocketOptions {
   // Tests (and later two-server setups) pass their own presence store.
   presenceStore?: PresenceStore;
+  // CONCEPT: socketio-redis-adapter. The adapter that lets several servers
+  // share events. Left out: one is created when REDIS_URL is set. Pass null
+  // to force none (a single-server setup, or a test of the problem the
+  // adapter solves).
+  redisAdapter?: RedisAdapterHandle | null;
 }
 
 export function initializeSocket(httpServer: http.Server, options: SocketOptions = {}): Server {
-  io = new Server(httpServer, {
+  // The handlers below use this local `server`, not the module-level `io`:
+  // two servers in one process (the two-server tests) must not mix up their
+  // handlers. `io` still points at the most recently created server, for
+  // getIO() and disconnectSessions().
+  const server = new Server(httpServer, {
     cors: { origin: true, credentials: true },
   });
+  io = server;
+
+  // CONCEPT: socketio-redis-adapter. With an adapter, events emitted on any
+  // server reach the sockets on all servers.
+  const redisAdapter =
+    options.redisAdapter === undefined ? createDefaultRedisAdapterHandle() : options.redisAdapter;
+  if (redisAdapter) {
+    server.adapter(redisAdapter.adapterConstructor);
+  }
 
   // CONCEPT: socketio-realtime-deliverables. Verified ONCE per
   // connection here, not per event — a WebSocket connection is
@@ -53,7 +72,7 @@ export function initializeSocket(httpServer: http.Server, options: SocketOptions
     options.presenceStore ??
     (redisClient ? createRedisPresenceStore(redisClient) : createInMemoryPresenceStore());
 
-  io.use(async (socket, next) => {
+  server.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
       return next(new Error('Authentication required'));
@@ -83,7 +102,7 @@ export function initializeSocket(httpServer: http.Server, options: SocketOptions
     }
   });
 
-  io.on('connection', (socket: Socket) => {
+  server.on('connection', (socket: Socket) => {
     // CONCEPT: notifications. Every connection joins ONE private room named
     // after the user, using the id from the VERIFIED token. There is no
     // client event for joining it, so nothing the client sends can put it
@@ -132,7 +151,7 @@ export function initializeSocket(httpServer: http.Server, options: SocketOptions
         try {
           const departed = await presenceStore.remove(projectId, socket.data.user._id, socket.id);
           if (departed) {
-            io?.to(presenceAudienceRoom(projectId, departed.role)).emit('presence:update', {
+            server.to(presenceAudienceRoom(projectId, departed.role)).emit('presence:update', {
               projectId,
               status: 'offline',
               user: departed,
@@ -184,7 +203,7 @@ export function initializeSocket(httpServer: http.Server, options: SocketOptions
     }
   });
 
-  return io;
+  return server;
 }
 
 // CONCEPT: sessions-and-token-revocation. Closes every live socket that
