@@ -4,6 +4,7 @@ import app from '../app.js';
 import Organization from '../models/Organization.js';
 import User from '../models/User.js';
 import Project from '../models/Project.js';
+import Session from '../models/Session.js';
 import { signAccessToken } from '../lib/jwt.js';
 import * as email from '../lib/email.js';
 
@@ -30,6 +31,11 @@ export async function makeOrg(tier: 'free' | 'pro' | 'business' = 'business') {
   });
 }
 
+// CONCEPT: sessions-and-token-revocation. Access tokens are only accepted
+// while their session exists, so every test user gets a session when it is
+// created, and tokenFor() puts that session's id into the token.
+const sessionIdByUserId = new Map<string, string>();
+
 export async function makeUser(
   organizationId: unknown,
   role: 'owner' | 'admin' | 'member' | 'client',
@@ -44,14 +50,26 @@ export async function makeUser(
     role,
     emailVerified: true,
   });
+  const session = await Session.create({
+    userId: user._id,
+    organizationId,
+    refreshTokenHash: `helper-session-${n}`,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+  sessionIdByUserId.set(String(user._id), String(session._id));
   return user;
 }
 
 export function tokenFor(user: { _id: unknown; organizationId: unknown; role: string }) {
+  const sessionId = sessionIdByUserId.get(String(user._id));
+  if (!sessionId) {
+    throw new Error('tokenFor needs a user created with makeUser (it creates the session the token refers to)');
+  }
   return signAccessToken({
     userId: String(user._id),
     organizationId: String(user.organizationId),
     role: user.role,
+    sessionId,
   });
 }
 
