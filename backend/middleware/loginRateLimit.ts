@@ -1,5 +1,8 @@
-import { Request } from 'express';
+import { Request, RequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
+import type { Redis } from 'ioredis';
+import { getRedisClient } from '../lib/redis.js';
+import { RedisRateLimitStore } from '../lib/redisRateLimitStore.js';
 
 // CONCEPT: jwt-auth-design (login rate limiting). Applied ONLY to
 // /auth/login, not as a general API limit, which would need to be far
@@ -31,26 +34,44 @@ function emailFromBody(req: Request): string {
   return typeof email === 'string' ? email.trim().toLowerCase() : '';
 }
 
-const loginIpRateLimit = rateLimit({
-  windowMs: WINDOW_MS,
-  max: MAX_ATTEMPTS_PER_IP,
-  message: { success: false, error: 'Too many login attempts. Please try again later.' },
-  standardHeaders: true, // adds RateLimit-* headers so the client can see its remaining attempts
-  legacyHeaders: false,
-});
+// CONCEPT: redis-rate-limiting. The counters live in Redis when a Redis client
+// is given, and in the server's memory when it is not. Memory is fine for one
+// server, but a restart resets it and two servers would each count separately
+// (an attacker would get the limit once per server). Redis gives one shared
+// count.
+//
+// Fail open: passOnStoreError lets the request through when Redis cannot be
+// reached (the error is logged). The alternative, refusing every login while
+// Redis is down, would turn a Redis outage into a full login outage.
+export function createLoginRateLimit(redisClient: Redis | null): RequestHandler[] {
+  const loginIpRateLimit = rateLimit({
+    windowMs: WINDOW_MS,
+    max: MAX_ATTEMPTS_PER_IP,
+    message: { success: false, error: 'Too many login attempts. Please try again later.' },
+    standardHeaders: true, // adds RateLimit-* headers so the client can see its remaining attempts
+    legacyHeaders: false,
+    store: redisClient ? new RedisRateLimitStore(redisClient, 'rl:login:ip:') : undefined,
+    passOnStoreError: true,
+  });
 
-const loginEmailRateLimit = rateLimit({
-  windowMs: WINDOW_MS,
-  max: MAX_FAILED_ATTEMPTS_PER_EMAIL,
-  message: { success: false, error: 'Too many login attempts. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => emailFromBody(req),
-  // A request without a usable email fails validation anyway and is still
-  // counted by the IP limit above.
-  skip: (req) => emailFromBody(req) === '',
-  // Only failed logins use up the allowance.
-  skipSuccessfulRequests: true,
-});
+  const loginEmailRateLimit = rateLimit({
+    windowMs: WINDOW_MS,
+    max: MAX_FAILED_ATTEMPTS_PER_EMAIL,
+    message: { success: false, error: 'Too many login attempts. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => emailFromBody(req),
+    // A request without a usable email fails validation anyway and is still
+    // counted by the IP limit above.
+    skip: (req) => emailFromBody(req) === '',
+    // Only failed logins use up the allowance.
+    skipSuccessfulRequests: true,
+    store: redisClient ? new RedisRateLimitStore(redisClient, 'rl:login:email:') : undefined,
+    passOnStoreError: true,
+  });
 
-export const loginRateLimit = [loginIpRateLimit, loginEmailRateLimit];
+  return [loginIpRateLimit, loginEmailRateLimit];
+}
+
+// What the app uses: Redis when REDIS_URL is set, memory otherwise.
+export const loginRateLimit = createLoginRateLimit(getRedisClient());
