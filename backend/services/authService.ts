@@ -8,6 +8,7 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken, getTokenExpiry }
 import { generateToken, hashToken } from '../lib/tokens.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
 import { RegisterInput, LoginInput } from '../validators/authValidators.js';
+import { disconnectSessions } from '../lib/socket.js';
 
 // CONCEPT: layered architecture — this is the ONLY place in the app that
 // contains auth business logic. authController stays thin, only calling
@@ -22,6 +23,18 @@ const PASSWORD_RESET_EXPIRY_MS = 60 * 60 * 1000; // 1 hour — shorter than
 // as text; anything that is not a 24-character hex id cannot be one of ours,
 // and checking first keeps a malformed value from reaching the database.
 const SESSION_ID_PATTERN = /^[0-9a-f]{24}$/i;
+
+// CONCEPT: sessions-and-token-revocation. The ONE place sessions are deleted.
+// Deleting the records makes the tokens useless at once; closing the sockets
+// makes live connections stop receiving events too.
+async function revokeSessions(filter: Record<string, unknown>): Promise<void> {
+  const sessions = await Session.find(filter).select('_id');
+  if (sessions.length === 0) return;
+
+  const sessionIds = sessions.map((session) => session._id);
+  await Session.deleteMany({ _id: { $in: sessionIds } });
+  disconnectSessions(sessionIds.map(String));
+}
 
 type TokenIdentity = { _id: unknown; organizationId: unknown; role: string };
 
@@ -197,7 +210,7 @@ export async function refresh(refreshToken: string) {
 
   const user = await User.findById(payload.userId);
   if (!user) {
-    await Session.deleteOne({ _id: session._id });
+    await revokeSessions({ _id: session._id });
     throw new AppError(401, 'User no longer exists');
   }
 
@@ -213,7 +226,7 @@ export async function refresh(refreshToken: string) {
     { $set: { refreshTokenHash: hashToken(newRefreshToken), expiresAt: getTokenExpiry(newRefreshToken) } }
   );
   if (!rotated) {
-    await Session.deleteOne({ _id: session._id });
+    await revokeSessions({ _id: session._id });
     throw invalid();
   }
 
@@ -236,7 +249,13 @@ export async function endSession(refreshToken: string | undefined): Promise<void
   }
   if (!payload.sessionId || !SESSION_ID_PATTERN.test(payload.sessionId)) return;
 
-  await Session.deleteOne({ _id: payload.sessionId, userId: payload.userId });
+  await revokeSessions({ _id: payload.sessionId, userId: payload.userId });
+}
+
+// FLOW: called by authController.logoutAll. Ends EVERY session of the person
+// (all their devices) and closes their live sockets.
+export async function endAllSessions(userId: string): Promise<void> {
+  await revokeSessions({ userId });
 }
 
 // FLOW: called by authController.requestPasswordReset. CONCEPT:
@@ -281,6 +300,11 @@ export async function resetPassword(submittedToken: string, newPassword: string)
   user.passwordResetExpires = undefined;
   user.invitePending = false;
   await user.save();
+
+  // CONCEPT: sessions-and-token-revocation. A password change must not leave
+  // old sign-ins alive: whoever knew the old password (or stole a token)
+  // loses access everywhere.
+  await revokeSessions({ userId: user._id });
 
   if (wasAcceptingInvite) {
     await notifyClientJoined(String(user.organizationId), user);
