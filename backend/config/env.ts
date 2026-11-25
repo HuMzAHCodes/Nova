@@ -64,7 +64,10 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string(),
   CLOUDINARY_API_SECRET: z.string(),
 
-  REDIS_URL: z.string(),
+  // CONCEPT: redis-rate-limiting. Optional: when it is not set, the login
+  // limiter (and later the presence store and Socket.io adapter) keep using
+  // their in-memory versions, which is correct for a single server.
+  REDIS_URL: z.string().optional(),
 
   LLM_API_KEY: z.string(),
   // Restricting this to a fixed set of values prevents typos like "Gemeni" from
