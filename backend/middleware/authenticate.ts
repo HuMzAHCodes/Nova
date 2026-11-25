@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../lib/jwt.js';
 import { TenantScopedRequest } from './scopeToTenant.js';
+import Session from '../models/Session.js';
 
 // CONCEPT: jwt-auth-design (see docs/concepts/jwt-auth-design). This is
 // the middleware that finally makes req.user REAL — every other
@@ -16,7 +17,12 @@ import { TenantScopedRequest } from './scopeToTenant.js';
 //   3. Populates req.user with the decoded payload
 //   4. scopeToTenant (registered after this) then reads req.user.organizationId
 //      exactly as it already does today — no changes needed there.
-export function authenticate(req: TenantScopedRequest, res: Response, next: NextFunction): void {
+//
+// CONCEPT: sessions-and-token-revocation. A valid signature is not enough any
+// more: the token names a Session record, and the request is refused unless
+// that record still exists, belongs to the same user and has not expired.
+// This one indexed read per request is what lets logout take effect at once.
+export async function authenticate(req: TenantScopedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -28,6 +34,15 @@ export function authenticate(req: TenantScopedRequest, res: Response, next: Next
 
   try {
     const payload = verifyAccessToken(token);
+    const sessionExists = await Session.exists({
+      _id: payload.sessionId,
+      userId: payload.userId,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!sessionExists) {
+      res.status(401).json({ success: false, error: 'Invalid or expired access token' });
+      return;
+    }
     // Populate req.user with exactly the shape scopeToTenant already
     // expects (see middleware/scopeToTenant.ts's TenantScopedRequest
     // interface) — _id, organizationId, role.
