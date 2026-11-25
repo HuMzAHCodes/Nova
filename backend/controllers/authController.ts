@@ -10,6 +10,7 @@ import {
 } from '../validators/authValidators.js';
 import * as authService from '../services/authService.js';
 import env from '../config/env.js';
+import { TenantScopedRequest } from '../middleware/scopeToTenant.js';
 
 // CONCEPT: jwt-auth-design (see docs/concepts/jwt-auth-design). This is
 // the ONLY place in the app that sets/reads the refresh token cookie —
@@ -123,6 +124,16 @@ export const refresh = catchAsync(async (req: Request, res: Response) => {
 // answers 200: a missing or invalid cookie just means there is nothing to end.
 export const logout = catchAsync(async (req: Request, res: Response) => {
   await authService.endSession(req.cookies?.refreshToken);
+  res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
+  sendSuccess(res, null);
+});
+
+// FLOW: POST /auth/logout-all (needs a valid access token, see authRoutes).
+// CONCEPT: sessions-and-token-revocation. Ends every session of the signed-in
+// person, on every device, and clears this device's cookie. The user id comes
+// from the verified token, never from the request body.
+export const logoutAll = catchAsync(async (req: TenantScopedRequest, res: Response) => {
+  await authService.endAllSessions(req.user!._id);
   res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
   sendSuccess(res, null);
 });
