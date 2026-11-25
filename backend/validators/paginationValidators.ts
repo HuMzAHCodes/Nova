@@ -17,3 +17,10 @@ export const paginationQuerySchema = z.object({
 });
 
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
+
+// CONCEPT: reconnect-handling. The server does not replay socket events a
+// client missed while offline. Instead a client asks a list endpoint what is
+// new since a time, using ?since=<ISO timestamp>. z.coerce.date() turns the
+// string into a Date; anything that is not a valid date (words, an empty
+// value, a repeated parameter) fails validation and answers 400.
+export const sinceSchema = z.coerce.date().optional();
