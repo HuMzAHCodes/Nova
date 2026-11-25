@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import env from '../config/env.js';
 
@@ -14,6 +15,10 @@ export interface JwtPayload {
   userId: string;
   organizationId: string;
   role: string;
+  // CONCEPT: sessions-and-token-revocation. The id of the Session record this
+  // token belongs to. The middleware accepts the token only while that record
+  // exists, which is what makes logout and revocation take effect at once.
+  sessionId: string;
 }
 
 // @types/jsonwebtoken types `expiresIn` as `number | StringValue`, where
@@ -34,7 +39,17 @@ export function signAccessToken(payload: JwtPayload): string {
 }
 
 export function signRefreshToken(payload: JwtPayload): string {
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, refreshTokenOptions);
+  // A random jwtid makes every refresh token unique. Without it, two tokens
+  // signed for the same session within the same second would be identical,
+  // and the stored hash could not tell the old one from the new one.
+  return jwt.sign(payload, env.JWT_REFRESH_SECRET, { ...refreshTokenOptions, jwtid: crypto.randomUUID() });
+}
+
+// Reads the expiry time out of a token we just signed (no verification is
+// needed: it is our own token). Used to set the session's expiresAt.
+export function getTokenExpiry(token: string): Date {
+  const decoded = jwt.decode(token) as { exp: number };
+  return new Date(decoded.exp * 1000);
 }
 
 // FLOW: called by the `authenticate` middleware on every protected
