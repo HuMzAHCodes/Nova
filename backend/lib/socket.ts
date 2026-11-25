@@ -4,8 +4,21 @@ import { verifyAccessToken } from './jwt.js';
 import User from '../models/User.js';
 import Project from '../models/Project.js';
 import ClientAccess from '../models/ClientAccess.js';
+import { createInMemoryPresenceStore, visibleEntriesFor, PresenceStore } from './presence.js';
 
 let io: Server | null = null;
+
+// CONCEPT: presence. Room names for the two audiences of a project. The
+// ordinary room holds staff and granted clients; the staff room holds staff
+// only (the same room comment events use for internal comments).
+const projectRoom = (projectId: string) => `project:${projectId}`;
+const projectStaffRoom = (projectId: string) => `project:${projectId}:staff`;
+
+// CONCEPT: presence. A client's arrival or departure is announced to staff
+// only (other clients must never learn who else is a client); a staff
+// member's is announced to everyone in the project.
+const presenceAudienceRoom = (projectId: string, role: string) =>
+  role === 'client' ? projectStaffRoom(projectId) : projectRoom(projectId);
 
 // A MongoDB ObjectId is a 24-character hex string. Checked before any
 // database query so a malformed, client-supplied value can never reach
@@ -24,6 +37,9 @@ export function initializeSocket(httpServer: http.Server): Server {
   // connection here, not per event — a WebSocket connection is
   // long-lived and stateful, unlike a REST request. See concept notes
   // for why re-verifying on every event would be redundant.
+  // CONCEPT: presence. One store per server; in-memory today, Redis later.
+  const presenceStore: PresenceStore = createInMemoryPresenceStore();
+
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
@@ -72,11 +88,72 @@ export function initializeSocket(httpServer: http.Server): Server {
           if (socket.data.user.role !== 'client') {
             socket.join(`project:${projectId}:staff`);
           }
+          await announceArrival(socket, projectId);
         }
       } catch (error) {
         console.error('joinProject failed:', error);
       }
     });
+
+    // CONCEPT: presence. When the connection ends, every project this
+    // socket had joined loses one socket; a person whose LAST socket just
+    // went is announced as offline.
+    socket.on('disconnect', async () => {
+      const joinedProjects: Set<string> = socket.data.presenceProjects ?? new Set<string>();
+      for (const projectId of joinedProjects) {
+        try {
+          const departed = await presenceStore.remove(projectId, socket.data.user._id, socket.id);
+          if (departed) {
+            io?.to(presenceAudienceRoom(projectId, departed.role)).emit('presence:update', {
+              projectId,
+              status: 'offline',
+              user: departed,
+            });
+          }
+        } catch (error) {
+          console.error('presence removal failed:', error);
+        }
+      }
+    });
+
+    // CONCEPT: presence. Runs after a successful join. A failure here is
+    // logged and ignored: presence is a bonus and must never undo the join.
+    async function announceArrival(arrivingSocket: Socket, projectId: string) {
+      try {
+        const person = await User.findById(arrivingSocket.data.user._id).select('name');
+        if (!person) return;
+        const entry = {
+          _id: String(person._id),
+          name: person.name,
+          role: arrivingSocket.data.user.role as string,
+        };
+
+        const joined: Set<string> = arrivingSocket.data.presenceProjects ?? new Set<string>();
+        joined.add(projectId);
+        arrivingSocket.data.presenceProjects = joined;
+        // The socket may have closed while the lookup was running.
+        if (arrivingSocket.disconnected) {
+          await presenceStore.remove(projectId, entry._id, arrivingSocket.id);
+          return;
+        }
+
+        const becamePresent = await presenceStore.add(projectId, entry, arrivingSocket.id);
+        if (becamePresent) {
+          arrivingSocket.to(presenceAudienceRoom(projectId, entry.role)).emit('presence:update', {
+            projectId,
+            status: 'online',
+            user: entry,
+          });
+        }
+        const everyone = await presenceStore.list(projectId);
+        arrivingSocket.emit('presence:list', {
+          projectId,
+          users: visibleEntriesFor(entry, everyone),
+        });
+      } catch (error) {
+        console.error('presence announcement failed:', error);
+      }
+    }
   });
 
   return io;
