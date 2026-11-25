@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sinceSchema } from './paginationValidators.js';
 
 // CONCEPT: comments. Plain text only, trimmed, 1 to 2000 characters. The
 // text is never interpreted as HTML or parsed for anything.
@@ -37,6 +38,8 @@ export const updateCommentSchema = z.object({
 export const threadQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(50),
+  // CONCEPT: reconnect-handling. Only comments created or edited after this time.
+  since: sinceSchema,
 });
 
 export type CreateCommentInput = z.infer<typeof createCommentSchema>;
