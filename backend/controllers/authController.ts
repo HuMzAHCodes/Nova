@@ -117,14 +117,12 @@ export const refresh = catchAsync(async (req: Request, res: Response) => {
   sendSuccess(res, { accessToken });
 });
 
-// FLOW: POST /auth/logout — clears the refresh cookie so the browser
-// stops sending it. NOTE: this does NOT invalidate the access token
-// already in the frontend's memory (it will simply expire naturally
-// within 15 minutes) — true immediate revocation would require a
-// server-side token blocklist, which isn't built here; flagged as a
-// known simplification, matching the "stateless JWT" tradeoff described
-// in the concept notes (fast/scalable, at the cost of no instant revocation).
+// FLOW: POST /auth/logout — CONCEPT: sessions-and-token-revocation. Deletes
+// this device's session on the server (so the access token and the refresh
+// token stop working at once) and clears the refresh cookie. It always
+// answers 200: a missing or invalid cookie just means there is nothing to end.
 export const logout = catchAsync(async (req: Request, res: Response) => {
+  await authService.endSession(req.cookies?.refreshToken);
   res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
   sendSuccess(res, null);
 });
