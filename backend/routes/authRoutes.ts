@@ -4,11 +4,13 @@ import {
   login,
   refresh,
   logout,
+  logoutAll,
   verifyEmail,
   requestPasswordReset,
   resetPassword,
 } from '../controllers/authController.js';
 import { loginRateLimit } from '../middleware/loginRateLimit.js';
+import { authenticate } from '../middleware/authenticate.js';
 
 // CONCEPT: route files contain ONLY path → middleware → controller wiring
 // (see BACKEND_PRACTICES.md). None of these routes use `authenticate` or
@@ -26,6 +28,10 @@ router.post('/login', loginRateLimit, login);
 
 router.post('/refresh', refresh);
 router.post('/logout', logout);
+
+// CONCEPT: sessions-and-token-revocation. The ONE route here that needs a
+// signed-in user: it ends every session of whoever the token belongs to.
+router.post('/logout-all', authenticate, logoutAll);
 
 // CONCEPT: email-verification-password-reset.
 router.post('/verify-email', verifyEmail);
