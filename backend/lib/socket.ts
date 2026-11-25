@@ -4,6 +4,7 @@ import { verifyAccessToken } from './jwt.js';
 import User from '../models/User.js';
 import Project from '../models/Project.js';
 import ClientAccess from '../models/ClientAccess.js';
+import Session from '../models/Session.js';
 import { createInMemoryPresenceStore, visibleEntriesFor, PresenceStore } from './presence.js';
 
 let io: Server | null = null;
@@ -40,7 +41,7 @@ export function initializeSocket(httpServer: http.Server): Server {
   // CONCEPT: presence. One store per server; in-memory today, Redis later.
   const presenceStore: PresenceStore = createInMemoryPresenceStore();
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
       return next(new Error('Authentication required'));
@@ -48,11 +49,22 @@ export function initializeSocket(httpServer: http.Server): Server {
 
     try {
       const payload = verifyAccessToken(token);
+      // CONCEPT: sessions-and-token-revocation. Same rule as the HTTP
+      // middleware: a valid signature is not enough, the session must exist.
+      const sessionExists = await Session.exists({
+        _id: payload.sessionId,
+        userId: payload.userId,
+        expiresAt: { $gt: new Date() },
+      });
+      if (!sessionExists) {
+        return next(new Error('Invalid or expired token'));
+      }
       socket.data.user = {
         _id: payload.userId,
         organizationId: payload.organizationId,
         role: payload.role,
       };
+      socket.data.sessionId = payload.sessionId;
       next();
     } catch {
       next(new Error('Invalid or expired token'));
@@ -66,6 +78,10 @@ export function initializeSocket(httpServer: http.Server): Server {
     // in someone else's room (unlike joinProject, which takes a
     // client-supplied id and therefore needs an access check).
     socket.join(`user:${socket.data.user._id}`);
+
+    // CONCEPT: sessions-and-token-revocation. One room per session, so ending
+    // a session can close exactly the sockets that belong to it.
+    socket.join(`session:${socket.data.sessionId}`);
 
     // CONCEPT: socketio-realtime-deliverables. A client-declared room
     // name is never trusted at face value — this mirrors the same kind
@@ -157,6 +173,15 @@ export function initializeSocket(httpServer: http.Server): Server {
   });
 
   return io;
+}
+
+// CONCEPT: sessions-and-token-revocation. Closes every live socket that
+// belongs to any of these sessions. Called after sessions are deleted
+// (logout, log out everywhere, password reset, detected replay). Does nothing
+// when Socket.io is not running (for example in tests that only use HTTP).
+export function disconnectSessions(sessionIds: string[]): void {
+  if (!io || sessionIds.length === 0) return;
+  io.in(sessionIds.map((sessionId) => `session:${sessionId}`)).disconnectSockets(true);
 }
 
 // CONCEPT: socketio-realtime-deliverables. Lets service-layer code (e.g.
