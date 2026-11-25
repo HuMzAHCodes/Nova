@@ -217,13 +217,21 @@ export async function notifyNewAssignees(
 
 // Every query below filters by BOTH userId and organizationId, both taken
 // from the verified token, never from the URL or body.
-export async function listForUser(tenantId: string, userId: string, query: PaginationQuery, unreadOnly: boolean) {
+export async function listForUser(
+  tenantId: string,
+  userId: string,
+  query: PaginationQuery,
+  unreadOnly: boolean,
+  since?: Date
+) {
   const { page, limit } = query;
   const skip = (page - 1) * limit;
   const filter = {
     organizationId: tenantId,
     userId,
     ...(unreadOnly ? { readAt: { $exists: false } } : {}),
+    // CONCEPT: reconnect-handling. Only notifications created after this time.
+    ...(since ? { createdAt: { $gt: since } } : {}),
   };
 
   const [notifications, total] = await Promise.all([
