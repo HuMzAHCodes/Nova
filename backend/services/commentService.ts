@@ -184,10 +184,21 @@ export async function create(tenantId: string, taskId: string, actor: Actor, inp
 export async function listForTask(tenantId: string, taskId: string, actor: Actor, query: ThreadQuery) {
   await loadTaskForActor(tenantId, taskId, actor);
 
-  const { page, limit } = query;
+  const { page, limit, since } = query;
   // The visibility filter applies to the list AND to the total, so a client
-  // never learns how many internal comments exist.
-  const filter = { organizationId: tenantId, taskId, visibility: { $in: visibleVisibilities(actor) } };
+  // never learns how many internal comments exist. It is part of the same
+  // filter object as "since", so catching up can never widen what is visible.
+  //
+  // CONCEPT: reconnect-handling. With "since", a comment counts as new when it
+  // was created OR edited after that time (strictly after). Deleted comments
+  // cannot be reported this way; a client that needs to notice deletions
+  // refetches the whole thread.
+  const filter = {
+    organizationId: tenantId,
+    taskId,
+    visibility: { $in: visibleVisibilities(actor) },
+    ...(since ? { $or: [{ createdAt: { $gt: since } }, { editedAt: { $gt: since } }] } : {}),
+  };
   const [comments, total] = await Promise.all([
     Comment.find(filter)
       .sort({ createdAt: 1 })
