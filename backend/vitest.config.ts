@@ -28,7 +28,6 @@ export default defineConfig({
       CLOUDINARY_CLOUD_NAME: 'x',
       CLOUDINARY_API_KEY: 'x',
       CLOUDINARY_API_SECRET: 'x',
-      REDIS_URL: 'redis://127.0.0.1:6379',
       LLM_API_KEY: 'x',
       LLM_PROVIDER: 'gemini',
     },
