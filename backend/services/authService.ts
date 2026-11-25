@@ -1,9 +1,10 @@
 import mongoose from 'mongoose';
 import User from '../models/User.js';
+import Session from '../models/Session.js';
 import Organization from '../models/Organization.js';
 import { AppError } from '../lib/AppError.js';
 import { notifyClientJoined } from './notificationService.js';
-import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt.js';
+import { signAccessToken, signRefreshToken, verifyRefreshToken, getTokenExpiry } from '../lib/jwt.js';
 import { generateToken, hashToken } from '../lib/tokens.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
 import { RegisterInput, LoginInput } from '../validators/authValidators.js';
@@ -17,20 +18,41 @@ const PASSWORD_RESET_EXPIRY_MS = 60 * 60 * 1000; // 1 hour — shorter than
 // verification, deliberately: a reset token is more immediately
 // powerful (grants account takeover), see the concept notes.
 
-// Small internal helper — every successful LOGIN operation ends the same
-// way: sign a fresh token pair from a user's current identity.
-// NOTE: register no longer calls this directly — see register() below,
-// hard verification means no tokens are issued at registration time.
-function issueTokens(user: { _id: unknown; organizationId: unknown; role: string }) {
-  const payload = {
+// CONCEPT: sessions-and-token-revocation. A session id is stored in tokens
+// as text; anything that is not a 24-character hex id cannot be one of ours,
+// and checking first keeps a malformed value from reaching the database.
+const SESSION_ID_PATTERN = /^[0-9a-f]{24}$/i;
+
+type TokenIdentity = { _id: unknown; organizationId: unknown; role: string };
+
+function buildPayload(user: TokenIdentity, sessionId: string) {
+  return {
     userId: String(user._id),
     organizationId: String(user.organizationId),
     role: user.role,
+    sessionId,
   };
-  return {
-    accessToken: signAccessToken(payload),
-    refreshToken: signRefreshToken(payload),
-  };
+}
+
+// Every successful LOGIN starts a new session (one per device): a database
+// record holding only the hash of the current refresh token. The access
+// token carries the session id and is rejected once the record is gone.
+// NOTE: register does not call this, hard verification means no tokens are
+// issued at registration time.
+async function startSession(user: TokenIdentity & { organizationId: unknown }) {
+  const sessionId = new mongoose.Types.ObjectId();
+  const payload = buildPayload(user, String(sessionId));
+  const refreshToken = signRefreshToken(payload);
+
+  await Session.create({
+    _id: sessionId,
+    userId: user._id,
+    organizationId: user.organizationId,
+    refreshTokenHash: hashToken(refreshToken),
+    expiresAt: getTokenExpiry(refreshToken),
+  });
+
+  return { accessToken: signAccessToken(payload), refreshToken };
 }
 
 // FLOW: called by authController.register. Creates a brand-new
@@ -140,26 +162,81 @@ export async function login(input: LoginInput) {
     throw new AppError(403, 'Please verify your email before logging in');
   }
 
-  const tokens = issueTokens(user);
+  const tokens = await startSession(user);
   return { user, ...tokens };
 }
 
 // FLOW: called by authController.refresh, with the refresh token already
 // extracted from the httpOnly cookie by the controller.
+//
+// CONCEPT: sessions-and-token-revocation. The refresh token is ROTATED: each
+// use replaces it with a new one and only the newest is accepted. If an
+// older token is presented (it was copied, or used twice), the whole session
+// is deleted, so the copy and the legitimate holder both have to sign in again.
 export async function refresh(refreshToken: string) {
+  const invalid = () => new AppError(401, 'Invalid or expired refresh token');
+
   let payload;
   try {
     payload = verifyRefreshToken(refreshToken);
   } catch {
-    throw new AppError(401, 'Invalid or expired refresh token');
+    throw invalid();
+  }
+  if (!payload.sessionId || !SESSION_ID_PATTERN.test(payload.sessionId)) {
+    throw invalid();
+  }
+
+  const session = await Session.findOne({
+    _id: payload.sessionId,
+    userId: payload.userId,
+    expiresAt: { $gt: new Date() },
+  });
+  if (!session) {
+    throw invalid();
   }
 
   const user = await User.findById(payload.userId);
   if (!user) {
+    await Session.deleteOne({ _id: session._id });
     throw new AppError(401, 'User no longer exists');
   }
 
-  return issueTokens(user);
+  const newPayload = buildPayload(user, String(session._id));
+  const newRefreshToken = signRefreshToken(newPayload);
+
+  // Compare-and-swap: the update only matches while the stored hash is still
+  // the hash of the token presented. Of two simultaneous refreshes with the
+  // same token, exactly one matches; the other finds nothing and is treated
+  // as a replay.
+  const rotated = await Session.findOneAndUpdate(
+    { _id: session._id, refreshTokenHash: hashToken(refreshToken) },
+    { $set: { refreshTokenHash: hashToken(newRefreshToken), expiresAt: getTokenExpiry(newRefreshToken) } }
+  );
+  if (!rotated) {
+    await Session.deleteOne({ _id: session._id });
+    throw invalid();
+  }
+
+  return { accessToken: signAccessToken(newPayload), refreshToken: newRefreshToken };
+}
+
+// FLOW: called by authController.logout. Ends THIS device's session by
+// deleting its record, so the access token and the refresh token both stop
+// working at once. A missing, expired or invalid token is ignored (there is
+// nothing to end), and the session is only deleted when the token's user id
+// matches the session's owner.
+export async function endSession(refreshToken: string | undefined): Promise<void> {
+  if (!refreshToken) return;
+
+  let payload;
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch {
+    return;
+  }
+  if (!payload.sessionId || !SESSION_ID_PATTERN.test(payload.sessionId)) return;
+
+  await Session.deleteOne({ _id: payload.sessionId, userId: payload.userId });
 }
 
 // FLOW: called by authController.requestPasswordReset. CONCEPT:
