@@ -36,6 +36,31 @@ describe('Redis is optional', () => {
   });
 });
 
+describe('the Socket.io adapter is optional', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('no adapter is created when REDIS_URL is not set', async () => {
+    const { createDefaultRedisAdapterHandle } = await import('../lib/redisAdapter.js');
+    expect(process.env.REDIS_URL).toBeUndefined();
+    expect(createDefaultRedisAdapterHandle()).toBeNull();
+  });
+
+  it('an adapter is created when REDIS_URL is set', async () => {
+    // Nothing listens on port 1; creating the connections must not throw.
+    vi.stubEnv('REDIS_URL', 'redis://127.0.0.1:1');
+    vi.resetModules();
+    const redisModule = await import('../lib/redis.js');
+    const adapterModule = await import('../lib/redisAdapter.js');
+    const handle = adapterModule.createDefaultRedisAdapterHandle();
+    expect(handle).not.toBeNull();
+    await handle?.close();
+    redisModule.getRedisClient()?.disconnect();
+  });
+});
+
 describe('RedisRateLimitStore with a stand-in client', () => {
   it('never reports a reset time in the past, even if Redis says the key has no expiry left', async () => {
     // PTTL answers -1 or -2 in a rare race; the store must fall back to a full window.
